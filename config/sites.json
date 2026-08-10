@@ -1,0 +1,12 @@
+[
+  {
+    "siteId": "example-site",
+    "name": "Example Site",
+    "url": "https://example.com"
+  },
+  {
+    "siteId": "broken-test-site",
+    "name": "Deliberately Broken Test Site",
+    "url": "https://this-domain-does-not-exist-abc123.com"
+  }
+]
