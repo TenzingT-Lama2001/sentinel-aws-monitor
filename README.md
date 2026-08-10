@@ -31,6 +31,8 @@ Amazon DynamoDB — incident records
 Architecture of the Project
 
 architecture workflow
+![Architecture of the Project](architecture.png)
+
 
 Multi-region deployment
 Sentinel uses a single CDK stack definition that is instantiated once per target region. Each instantiation creates its own fully independent set of resources — Lambda, S3, EventBridge, CloudWatch, SNS, and DynamoDB — with no cross-region dependencies. This means monitoring can continue uninterrupted from one region even if the other becomes unavailable.
