@@ -8,123 +8,174 @@ Sentinel is a serverless monitoring system that periodically checks a configurab
 
 This project is being built as the NIT6150 Advanced Project at Victoria University.
 
-## Team Members
+## Team
 
-- **Tenzing Tsering Lama**
-- **Samrat Neupane**
-- **Md. Malik**
+- **Tenzing Tsering Lama** — Team Lead / Lead Developer
+- **Samrat Neupane** — Research and Testing
+- **Md. Malik** — Research and Testing
 
-Sentinel is deployed independently in two AWS regions:
+## Architecture
 
-ap-southeast-2 — Sydney
-ap-southeast-1 — Melbourne [ Not decided yet . We will be deciding the region once we integrate the project]
-Each regional stack contains:
-
-AWS Lambda — website monitoring
-Amazon S3 — website configuration
-Amazon EventBridge — scheduled monitoring
-Amazon CloudWatch — metrics, dashboards and alarms
-Amazon SNS — alert notifications
-Amazon DynamoDB — incident records
-
-
-##Architecture of the Project
-
-###Architecture workflow:
+Sentinel is deployed as a single CDK stack, instantiated independently per AWS Region. Each regional instance creates its own fully independent set of resources (Lambda, S3, EventBridge, CloudWatch, SNS, DynamoDB) with no cross-region dependencies, so monitoring can continue uninterrupted in one region even if another becomes unavailable.
 
 ![Architecture of the Project](architecture.png)
 <img width="768" height="1363" alt="architecture workflow" src="https://github.com/user-attachments/assets/c7dd6c90-7fab-49ca-84a6-326367d3c9ba" />
-## Multi-region deployment
 
-Sentinel uses a single CDK stack definition that is instantiated once per target region. Each instantiation creates its own fully independent set of resources — Lambda, S3, EventBridge, CloudWatch, SNS, and DynamoDB — with no cross-region dependencies. This means monitoring can continue uninterrupted from one region even if the other becomes unavailable.
+```
+S3 (site list) → Lambda (canary/crawler) → CloudWatch (metrics)
+                                                  ├── CloudWatch Dashboard
+                                                  └── CloudWatch Alarms → SNS (notify)
+                                                                       └── DynamoDB (log)
+```
+
+Each regional stack contains:
+
+- **AWS Lambda** — website availability and latency checks
+- **Amazon S3** — monitored-site configuration (`sites.json`)
+- **Amazon EventBridge** — scheduled monitoring trigger *(planned — Phase 2)*
+- **Amazon CloudWatch** — metrics, dashboards, and alarms *(metrics: Phase 2; alarms/dashboard: Phase 2–3)*
+- **Amazon SNS** — alert notifications *(planned — Phase 3)*
+- **Amazon DynamoDB** — incident records *(planned — Phase 3)*
+
+## AWS Regions
+
+| Region | Location | Status |
+|---|---|---|
+| `ap-southeast-2` | Sydney | Primary deployment region |
+| *TBD* | *TBD (candidate: Singapore, `ap-southeast-1`)* | Second region, to be finalised during multi-region deployment (Phase 2) |
+
+The same CDK stack definition is deployed to each region independently — regional resources are intentionally isolated so monitoring can continue from one region if another becomes unavailable.
+
+## Project Status
+
+🚧 **In progress** — currently in Phase 2 (crawler and S3 site configuration). See the project proposal and System Analysis and Design Report in `docs/` for the full phased plan.
+
+| Feature | Status |
+|---|---|
+| Single-site health check (canary) | ✅ Implemented |
+| Multi-site crawler (S3-configured) | ✅ Implemented |
+| Scheduled execution (EventBridge) | ⬜ Not yet implemented |
+| CloudWatch metric publishing | ⬜ Not yet implemented |
+| CloudWatch Dashboard | ⬜ Not yet implemented |
+| Multi-region deployment | ⬜ Not yet implemented |
+| CloudWatch Alarms | ⬜ Not yet implemented |
+| SNS notifications | ⬜ Not yet implemented |
+| DynamoDB incident logging | ⬜ Not yet implemented |
 
 ## Features
 
 ### Website monitoring
 
-The Lambda function reads website configuration from:
+The crawler Lambda reads the monitored-site list from S3 (`config/sites.json`). For each configured website, it records:
 
-text
-config/sites.json
+- Availability (up/down)
+- HTTP status code
+- Response latency (milliseconds)
+- Error information when a request fails or times out
 
+### CloudWatch metrics *(planned)*
 
-For each configured website, Lambda records:
+Custom metrics will be published under the namespace `Sentinel/Monitoring`:
 
-* Availability
-* HTTP status code
-* Response latency
-* Error information when a request fails
+- Availability
+- Latency
 
-## CloudWatch metrics
+Metrics will use the website name as a dimension (e.g. `Site = example-site-01`).
 
-Custom metrics are published under the namespace:
+### CloudWatch dashboards *(planned)*
 
-text
-Sentinel/Monitoring
+Each regional stack will create a regional CloudWatch Dashboard including:
 
+- Website availability
+- Website latency
+- Lambda invocations, errors, and duration
 
-The application publishes:
+Dashboard names will follow the pattern `Sentinel-<region>`, e.g. `Sentinel-ap-southeast-2`.
 
-* Availability
-* Latency
+### CloudWatch alarms *(planned)*
 
+Two alarms are planned for Phase 3:
 
-
-
-## CloudWatch dashboards
-
-Each regional stack creates a regional CloudWatch dashboard. The dashboard includes:
-
-* Website availability
-* Website latency
-* Lambda invocations
-* Lambda errors
-* Lambda duration
-
-Dashboard names follow the regional pattern:
-
-text
-Sentinel-ap-southeast-2
-Sentinel-ap-southeast-1
-
-
-## CloudWatch alarms
-
-We will be configuring two monitoring alarms for now.
-
-### Availability alarm
-
-Enters the alarm state when availability falls below the expected value.
-
-### Latency alarm
-
-Monitors website response latency and triggers when latency exceeds the configured threshold.
+- **Availability alarm** — enters the alarm state when a site's availability falls below the expected value
+- **Latency alarm** — triggers when response latency exceeds the configured threshold
 
 Alarm notifications will be connected to an SNS topic.
 
-## DynamoDB incident records
+### DynamoDB incident records *(planned)*
 
-Monitoring incidents are stored in a regional DynamoDB table. Incident records contain:
+Monitoring incidents will be stored in a regional DynamoDB table, with each record containing:
 
-* Incident ID
-* Website name
-* Website URL
-* Timestamp
+- Incident ID
+- Website name and URL
+- Metric type, measured value, and threshold
+- Timestamp and alarm state
 
-Each AWS region has its own incident table.
+Each AWS region will have its own incident table.
 
-## AWS Regions
+## Tech Stack
 
-| AWS Region       | Location  | Stack                         |
-| ---------------- | --------- | ----------------------------- |
-| ap-southeast-2 | Sydney    | SentinelAwsMonitorSydney    |
-| ap-southeast-1 | Melbourne | SentinelAwsMonitorMelbourne |
+- **AWS CDK** (TypeScript) — Infrastructure as Code
+- **AWS Lambda** — serverless compute for the canary/crawler
+- **Amazon S3** — monitored-site configuration storage
+- **Amazon CloudWatch** — metrics, dashboards, alarms
+- **Amazon EventBridge** — scheduled execution
+- **Amazon SNS** — alarm notifications
+- **Amazon DynamoDB** — incident logging
 
+## Repository Structure
 
+```
+sentinel-aws-monitor/
+├── bin/                              # CDK app entry point
+├── cdk.out/                          # Synthesized CloudFormation templates (generated, git-ignored)
+├── config/
+│   └── sites.json                    # Monitored-site configuration
+├── docs/
+│   └── NIT6150_Project_Proposal_Final.docx
+├── infra/                            # CDK stack definitions
+├── lambda/
+│   ├── canary.ts                     # Phase 1: single-site health check
+│   ├── crawler.ts                    # Phase 2: multi-site crawler (reads config/sites.json)
+│   └── site-config.ts                # Shared types for site configuration
+├── node_modules/                     # Installed dependencies (git-ignored)
+├── test/                             # Unit tests
+├── .gitignore
+├── .npmignore
+├── cdk.json                          # CDK app configuration
+├── jest.config.js                    # Test runner configuration
+├── out-crawler.json                  # Sample crawler invoke output
+├── package.json
+├── package-lock.json
+├── README.md
+└── tsconfig.json
+```
+## Prerequisites
 
+- Node.js (LTS)
+- AWS CLI, configured with an IAM user (`aws configure`)
+- AWS CDK CLI (`npm install -g aws-cdk`)
+- An AWS account with permissions for Lambda, S3, CloudWatch, SNS, DynamoDB, EventBridge, and IAM
 
-Region	Location	Stack
-ap-southeast-2	Sydney	SentinelAwsMonitorSydney
-ap-southeast-1	Singapore	SentinelAwsMonitorMelbourne
-The regional resources are intentionally independent so that monitoring can continue from another AWS region.
+## Setup
 
+```bash
+# Clone the repository
+git clone https://github.com/TenzingT-Lama2001/sentinel-aws-monitor.git
+cd sentinel-aws-monitor/infra
+
+# Install dependencies
+npm install
+
+# Bootstrap CDK (one-time per AWS account/region)
+cdk bootstrap
+
+# Synthesize the CloudFormation template (sanity check)
+cdk synth
+
+# Deploy the stack
+cdk deploy
+```
+
+## License
+
+This project is submitted as coursework for NIT6150 Advanced Project, Victoria University.
