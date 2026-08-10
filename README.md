@@ -14,7 +14,6 @@ This project is being built as the NIT6150 Advanced Project at Victoria Universi
 - **Samrat Neupane**
 - **Md. Malik**
 
-Architecture
 Sentinel is deployed independently in two AWS regions:
 
 ap-southeast-2 — Sydney
@@ -91,3 +90,5 @@ Region	Location	Stack
 ap-southeast-2	Sydney	SentinelAwsMonitorSydney
 ap-southeast-1	Singapore	SentinelAwsMonitorMelbourne
 The regional resources are intentionally independent so that monitoring can continue from another AWS region.
+
+j
