@@ -7,11 +7,13 @@ import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as iam from 'aws-cdk-lib/aws-iam';
 
 // Filename the crawler reads from S3; shared so the bucket grant and the
 // Lambda's env var always agree on the same file.
 const SITE_CONFIG_KEY = 'sites.json';
 
+const METRIC_NAMESPACE = 'WebsiteMonitoring';
 export class SentinelAwsMonitorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -68,14 +70,22 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
     // Grant read access to just sites.json — not the whole bucket.
     siteConfigBucket.grantRead(crawlerFunction, SITE_CONFIG_KEY);
 
+    // allow the crawler to publish Availability/Latency metrics.
+    // CloudWatch metrics have no ARN to grant against, so least-privilege here
+    // means scoping by namespace via a condition instead of a resource.
+    crawlerFunction.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['cloudwatch:PutMetricData'],
+      resources: ['*'],
+      conditions: {
+        StringEquals: { 'cloudwatch:namespace': METRIC_NAMESPACE },
+      },
+    }));
 
-    // run the crawler autoatically every 5 minutes instead of manual invocation
+    // run the crawler autoatically every 5 minutes instead of manual invocation using rate based scheduler
 
-    //using rate based scheduler
-
-    const rule = new events.Rule(this, 'CrawlerRule', {
-      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
-    });
-    rule.addTarget(new targets.LambdaFunction(crawlerFunction));
+    // const rule = new events.Rule(this, 'CrawlerRule', {
+    //   schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+    // });
+    // rule.addTarget(new targets.LambdaFunction(crawlerFunction));
   }
 }
