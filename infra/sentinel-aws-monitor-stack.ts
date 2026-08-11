@@ -1,4 +1,5 @@
 import * as path from 'path';
+import * as fs from 'fs';
 import * as cdk from 'aws-cdk-lib/core';
 import { Construct } from 'constructs';
 import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
@@ -8,6 +9,10 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import { MonitoredSite } from '../lambda/site-config';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import { Statistic } from '@aws-sdk/client-cloudwatch';
+
 
 // Filename the crawler reads from S3; shared so the bucket grant and the
 // Lambda's env var always agree on the same file.
@@ -87,5 +92,62 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
     //   schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
     // });
     // rule.addTarget(new targets.LambdaFunction(crawlerFunction));
+
+
+    /**
+     * dashboard with per-site Availability/Latency widgets
+     * reads from the config/sites.json at synth time
+     */
+
+    const monitoredSites: MonitoredSite[] = JSON.parse(
+      fs.readFileSync(path.join(__dirname, '..', 'config', 'sites.json'), 'utf-8'),
+    );
+
+    const dashboard = new cloudwatch.Dashboard(this, 'MonitoringDashboard', {
+      dashboardName: 'WebsiteMonitoring',
+    })
+
+    for (const site of monitoredSites) {
+      const dimensionsMap = { SiteId: site.siteId }
+
+      const availability = new cloudwatch.Metric({
+        namespace: METRIC_NAMESPACE,
+        metricName: 'Availability',
+        dimensionsMap,
+        statistic: 'Average',
+        period: cdk.Duration.minutes(1),
+      })
+
+      const latency = new cloudwatch.Metric({
+        namespace: METRIC_NAMESPACE,
+        metricName: 'Latency',
+        dimensionsMap,
+        statistic: 'Average',
+        period: cdk.Duration.minutes(1),
+      })
+
+      dashboard.addWidgets(
+        new cloudwatch.GraphWidget({
+          title: `${site.name} — Availability`,
+          left: [availability],
+          // Availability is always 0 or 1 — pin the axis so a healthy site's flat
+          // line at 1 doesn't get auto-scaled into looking like noise.
+          leftYAxis: { min: 0, max: 1 },
+          width: 12,
+        }),
+        new cloudwatch.GraphWidget({
+          title: `${site.name} — Latency (ms)`,
+          left: [latency],
+          width: 12,
+        }),
+      );
+
+    }
+    // Printed after `cdk deploy` so the dashboard is one click away instead of
+    // having to hunt for it by name in the console.
+    new cdk.CfnOutput(this, 'DashboardUrl', {
+      value: `https://${this.region}.console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${dashboard.dashboardName}`,
+    });
+
   }
 }
