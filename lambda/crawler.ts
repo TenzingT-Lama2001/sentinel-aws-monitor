@@ -8,12 +8,14 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { checkSite, CheckResult } from './canary';
 import { MonitoredSite } from './site-config';
+import { CloudWatchClient, MetricDatum, PutMetricDataCommand, StandardUnit } from '@aws-sdk/client-cloudwatch';
+
 
 const s3 = new S3Client({}); // created once, reused across invocations
-
+const cloudwatch = new CloudWatchClient({})
 const CONFIG_BUCKET = process.env.SITE_CONFIG_BUCKET;       // set by CDK, no fallback — a missing bucket is fatal
 const CONFIG_KEY = process.env.SITE_CONFIG_KEY ?? 'sites.json'; // safe default if unset
-
+const METRIC_NAMESPACE = process.env.METRIC_NAMESPACE ?? 'WebsiteMonitoring';
 /** One site's check result, tagged with which site it belongs to. */
 export interface CrawlerSiteResult extends CheckResult {
   siteId: string;
@@ -85,6 +87,46 @@ export async function crawl(): Promise<CrawlerSiteResult[]> {
   });
 }
 
+/** 
+  * Publishes each site's Availability (always) and Latency only when ip to Cloudwatch, dimensioned by SiteId so each site gets its own tie series under the shared namespace
+*/
+
+async function publishMetrics(results: CrawlerSiteResult[]): Promise<void> {
+  const timestamp = new Date();
+
+
+  const metricData: MetricDatum[] = results.flatMap((result) => {
+    const dimensions = [{
+      Name: 'SiteId', Value: result.siteId
+    }];
+
+    const data: MetricDatum[] = [
+      {
+        MetricName: 'Availability',
+        Dimensions: dimensions,
+        Timestamp: timestamp,
+        Unit: StandardUnit.Count,
+        Value: result.up ? 1 : 0.
+      }
+    ];
+
+    if (result.latencyMs !== undefined) {
+      data.push({
+        MetricName: 'Latency',
+        Dimensions: dimensions,
+        Timestamp: timestamp,
+        Unit: StandardUnit.Milliseconds,
+        Value: result.latencyMs
+      })
+    }
+    return data;
+  })
+
+  await cloudwatch.send(new PutMetricDataCommand({
+    Namespace: METRIC_NAMESPACE,
+    MetricData: metricData
+  }));
+}
 /**
  * Lambda entry point. The incoming event is ignored — every run checks the
  * same configured site list regardless of what triggered it.
@@ -94,5 +136,6 @@ export async function handler(): Promise<CrawlerSiteResult[]> {
 
   console.log(JSON.stringify(results)); // shows up in CrawlerLogGroup
 
+  await publishMetrics(results);
   return results;
 }
