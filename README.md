@@ -19,8 +19,6 @@ This project is being built as the NIT6150 Advanced Project at Victoria Universi
 Sentinel is deployed as a single CDK stack, instantiated independently per AWS Region. Each regional instance creates its own fully independent set of resources (Lambda, S3, EventBridge, CloudWatch, SNS, DynamoDB) with no cross-region dependencies, so monitoring can continue uninterrupted in one region even if another becomes unavailable.
 
 ![Architecture of the Project](architecture.png)
-<img width="768" height="1363" alt="architecture workflow" src="https://github.com/user-attachments/assets/c7dd6c90-7fab-49ca-84a6-326367d3c9ba" />
-
 ```
 S3 (site list) → Lambda (canary/crawler) → CloudWatch (metrics)
                                                   ├── CloudWatch Dashboard
