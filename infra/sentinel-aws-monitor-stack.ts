@@ -5,6 +5,8 @@ import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
 import { Runtime } from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 
 // Filename the crawler reads from S3; shared so the bucket grant and the
 // Lambda's env var always agree on the same file.
@@ -65,5 +67,15 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
 
     // Grant read access to just sites.json — not the whole bucket.
     siteConfigBucket.grantRead(crawlerFunction, SITE_CONFIG_KEY);
+
+
+    // run the crawler autoatically every 5 minutes instead of manual invocation
+
+    //using rate based scheduler
+
+    const rule = new events.Rule(this, 'CrawlerRule', {
+      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+    });
+    rule.addTarget(new targets.LambdaFunction(crawlerFunction));
   }
 }

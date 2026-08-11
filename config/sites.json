@@ -1,12 +1,27 @@
 [
   {
-    "siteId": "example-site",
-    "name": "Example Site",
-    "url": "https://example.com"
+    "siteId": "site-01",
+    "url": "https://example.com",
+    "name": "Example Site"
   },
   {
-    "siteId": "broken-test-site",
-    "name": "Deliberately Broken Test Site",
-    "url": "https://this-domain-does-not-exist-abc123.com"
+    "siteId": "site-02",
+    "url": "https://httpbin.org/status/200",
+    "name": "HTTPBin Status Check"
+  },
+  {
+    "siteId": "site-03",
+    "url": "https://this-domain-does-not-exist-sentinel-test.com",
+    "name": "Broken Test Site"
+  },
+  {
+    "siteId": "site-04",
+    "url": "https://example.org",
+    "name": "Example Org"
+  },
+  {
+    "siteId": "site-05",
+    "url": "https://httpbin.org/status/201",
+    "name": "HTTPBin Created Status"
   }
 ]
