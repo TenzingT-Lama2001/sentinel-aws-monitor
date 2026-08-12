@@ -52,9 +52,9 @@ The same CDK stack definition is deployed to each region independently — regio
 |---|---|
 | Single-site health check (canary) | ✅ Implemented |
 | Multi-site crawler (S3-configured) | ✅ Implemented |
-| Scheduled execution (EventBridge) | ⬜ Not yet implemented |
-| CloudWatch metric publishing | ⬜ Not yet implemented |
-| CloudWatch Dashboard | ⬜ Not yet implemented |
+| Scheduled execution (EventBridge) | ✅ Implemented |
+| CloudWatch metric publishing | ✅ Implemented |
+| CloudWatch Dashboard | ✅ Implemented |
 | Multi-region deployment | ⬜ Not yet implemented |
 | CloudWatch Alarms | ⬜ Not yet implemented |
 | SNS notifications | ⬜ Not yet implemented |
@@ -173,6 +173,22 @@ cdk synth
 # Deploy the stack
 cdk deploy
 ```
+
+## Sprints
+## Sprint 1 
+
+Created the AWS account and set up IAM roles, installed the AWS CDK, and initialized the TypeScript application. Committed all progress to GitHub, updated the README file, and finalized the project proposal.
+
+## Sprint 2 
+Created the Lambda function to check a single website's availability, then built it out into a crawler that could check multiple websites at once. Set up an automatic schedule so it runs on its own without needing to be triggered manually. Connected it to CloudWatch so the results get recorded every time it runs, and built a CloudWatch Dashboard so the team can visually see the health of all the sites in one place. Alongside this, created the initial draft of the System Analysis and Design Report, and the whole group worked together from there to review and finalize it. Also updated the GitHub setup to require approval before changes go live, after an accidental unapproved update.
+
+## Blockers (Sprint 2)
+
+Hit a design decision that hasn't been fully resolved yet: how the dashboard should update when websites are added or removed from the monitoring list. Right now, it only updates on manual redeploy, which works but isn't ideal long term. Looked at more automatic options, but they come with their own downsides, such as leftover resources that don't clean up properly, or the dashboard still showing data for sites already removed. This needs a decision before the dashboard can be considered fully finished.
+
+## Sprint 3 (upcoming)
+
+Starting Phase 3: setting up alarms that trigger automatically when a website's speed or uptime crosses a certain limit, connecting those alarms to a notification system so the team gets an email when something goes wrong, and building a permanent incident log to record what happened, when, and why. Once that's working, testing the whole flow end-to-end by deliberately breaking a site to confirm alerts and logging work as expected. Alongside this, continuing to update the System Analysis and Design Report and other documentation to match what's actually been built, and preparing for the final demonstration and submission.
 
 ## License
 
