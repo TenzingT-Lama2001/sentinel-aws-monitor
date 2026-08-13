@@ -5,6 +5,7 @@
     "build": "tsc",
     "watch": "tsc -w",
     "test": "jest",
+    "lint": "eslint .",
     "cdk": "cdk"
   },
   "devDependencies": {
@@ -13,13 +14,16 @@
     "@types/jest": "^30",
     "@types/node": "^24.10.1",
     "aws-cdk": "2.1135.0",
+    "eslint": "^10.8.1",
     "jest": "^30",
     "tsx": "^4.23.0",
-    "typescript": "~7.0.2"
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.67.0"
   },
   "dependencies": {
     "@aws-sdk/client-cloudwatch": "^3.1107.0",
     "@aws-sdk/client-s3": "^3.1106.0",
+    "@eslint/js": "^10.0.1",
     "aws-cdk-lib": "^2.263.0",
     "constructs": "^10.5.0"
   }
