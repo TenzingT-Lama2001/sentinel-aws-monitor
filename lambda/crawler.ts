@@ -11,6 +11,7 @@ import { MonitoredSite } from './site-config';
 import { CloudWatchClient, MetricDatum, PutMetricDataCommand, StandardUnit } from '@aws-sdk/client-cloudwatch';
 
 
+const testing = 1;
 const s3 = new S3Client({}); // created once, reused across invocations
 const cloudwatch = new CloudWatchClient({})
 const CONFIG_BUCKET = process.env.SITE_CONFIG_BUCKET;       // set by CDK, no fallback — a missing bucket is fatal
