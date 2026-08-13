@@ -11,7 +11,6 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { MonitoredSite } from '../lambda/site-config';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
-import { Statistic } from '@aws-sdk/client-cloudwatch';
 
 
 // Filename the crawler reads from S3; shared so the bucket grant and the
