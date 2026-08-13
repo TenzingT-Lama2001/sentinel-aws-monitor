@@ -11,7 +11,6 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { MonitoredSite } from '../lambda/site-config';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
-import { Statistic } from '@aws-sdk/client-cloudwatch';
 
 
 // Filename the crawler reads from S3; shared so the bucket grant and the
@@ -86,12 +85,12 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       },
     }));
 
-    // run the crawler autoatically every 5 minutes instead of manual invocation using rate based scheduler
+    //run the crawler autoatically every 5 minutes instead of manual invocation using rate based scheduler
 
-    // const rule = new events.Rule(this, 'CrawlerRule', {
-    //   schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
-    // });
-    // rule.addTarget(new targets.LambdaFunction(crawlerFunction));
+    const rule = new events.Rule(this, 'CrawlerRule', {
+      schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+    });
+    rule.addTarget(new targets.LambdaFunction(crawlerFunction));
 
 
     /**
@@ -115,7 +114,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         metricName: 'Availability',
         dimensionsMap,
         statistic: 'Average',
-        period: cdk.Duration.minutes(1),
+        period: cdk.Duration.minutes(5),
       })
 
       const latency = new cloudwatch.Metric({
@@ -123,15 +122,13 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         metricName: 'Latency',
         dimensionsMap,
         statistic: 'Average',
-        period: cdk.Duration.minutes(1),
+        period: cdk.Duration.minutes(5),
       })
 
       dashboard.addWidgets(
         new cloudwatch.GraphWidget({
           title: `${site.name} — Availability`,
           left: [availability],
-          // Availability is always 0 or 1 — pin the axis so a healthy site's flat
-          // line at 1 doesn't get auto-scaled into looking like noise.
           leftYAxis: { min: 0, max: 1 },
           width: 12,
         }),
@@ -148,6 +145,8 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'DashboardUrl', {
       value: `https://${this.region}.console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${dashboard.dashboardName}`,
     });
+
+
 
   }
 }
