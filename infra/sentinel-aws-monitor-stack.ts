@@ -102,8 +102,8 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       fs.readFileSync(path.join(__dirname, '..', 'config', 'sites.json'), 'utf-8'),
     );
 
-    const dashboard = new cloudwatch.Dashboard(this, 'MonitoringDashboard', {
-      dashboardName: 'WebsiteMonitoring',
+    const dashboard = new cloudwatch.Dashboard(this, `WebsiteMonitoring-${this.region}`, {
+      dashboardName: `WebsiteMonitoring-${this.region}`,
     })
 
     for (const site of monitoredSites) {
