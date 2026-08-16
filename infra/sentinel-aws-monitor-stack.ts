@@ -11,6 +11,9 @@ import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { MonitoredSite } from '../lambda/site-config';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as sns from 'aws-cdk-lib/aws-sns';
+import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
+import * as cloudwatchActions from 'aws-cdk-lib/aws-cloudwatch-actions';
 
 
 // Filename the crawler reads from S3; shared so the bucket grant and the
@@ -92,6 +95,21 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
     });
     rule.addTarget(new targets.LambdaFunction(crawlerFunction));
 
+// ============================================================
+// SNS TOPIC FOR CLOUDWATCH ALARM NOTIFICATIONS
+// ============================================================
+
+const alarmTopic = new sns.Topic(this, 'SentinelAlarmTopic', {
+  displayName: 'Sentinel Website Monitoring Alerts',
+});
+
+// Subscribe an email address to the SNS topic.
+// The recipient must confirm the subscription from their email.
+alarmTopic.addSubscription(
+  new subscriptions.EmailSubscription(
+    'youractualemail@gmail.com'
+  )
+);
 
     /**
      * dashboard with per-site Availability/Latency widgets
@@ -102,8 +120,8 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       fs.readFileSync(path.join(__dirname, '..', 'config', 'sites.json'), 'utf-8'),
     );
 
-    const dashboard = new cloudwatch.Dashboard(this, `WebsiteMonitoring-${this.region}`, {
-      dashboardName: `WebsiteMonitoring-${this.region}`,
+    const dashboard = new cloudwatch.Dashboard(this, `WebsiteMonitoringDashboard`, {
+      dashboardName: `WebsiteMonitoringDashboard`,
     })
 
     for (const site of monitoredSites) {
@@ -116,6 +134,32 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         statistic: 'Average',
         period: cdk.Duration.minutes(5),
       })
+
+const availabilityAlarm = new cloudwatch.Alarm(
+  this,
+  `${site.siteId}AvailabilityAlarm`,
+  {
+    alarmName: `Sentinel-${site.siteId}-Availability`,
+    alarmDescription: `Availability alarm for ${site.name}`,
+
+    metric: availability,
+
+    threshold: 1,
+
+    evaluationPeriods: 1,
+
+    comparisonOperator:
+      cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+
+    treatMissingData:
+      cloudwatch.TreatMissingData.NOT_BREACHING,
+  }
+);
+
+availabilityAlarm.addAlarmAction(
+  new cloudwatchActions.SnsAction(alarmTopic)
+);
+
 
       const latency = new cloudwatch.Metric({
         namespace: METRIC_NAMESPACE,
