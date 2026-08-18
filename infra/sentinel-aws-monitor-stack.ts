@@ -207,15 +207,17 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       // Reuses the same Metric objects the widgets above are built from, so the alarm
       // and the graph can never drift out of sync with each other.
       const availabilityAlarm = availability.createAlarm(this, `AvailabilityAlarm-${site.siteId}`, {
+        alarmName: `${this.stackName}-Availability-${site.siteId}`,
         alarmDescription: `${site.name} has been down for 2 consecutive checks (10 min)`,
         comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD, // averaged value below 1 = a check failed
         threshold: 1,
-        evaluationPeriods: 2,   // look at the last 3 periods (3 × 5 min = 15 min window)
-        datapointsToAlarm: 2,
+        evaluationPeriods: 3,   // look at the last 3 periods (3 × 5 min = 15 min window)
+        datapointsToAlarm: 3,
         treatMissingData: cloudwatch.TreatMissingData.BREACHING, // no data is exactly as bad as a failing check
       });
 
       const latencyAlarm = latency.createAlarm(this, `LatencyAlarm-${site.siteId}`, {
+        alarmName: `${this.stackName}-Latency-${site.siteId}`,
         alarmDescription: `${site.name} latency has exceeded 3000ms for 2 consecutive checks (10 min)`,
         comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
         threshold: 3000,
