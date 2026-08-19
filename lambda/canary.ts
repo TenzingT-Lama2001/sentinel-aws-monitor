@@ -17,9 +17,9 @@ export interface CanaryEvent {
 export interface CheckResult {
   url: string;
   up: boolean;
-  statusCode?: number;  // absent if no HTTP response came back at all (timeout/DNS/connection error)
-  latencyMs?: number;   // only set when up=true — a down site has no meaningful response time
-  error?: string;       // human-readable failure reason, only set when up=false
+  statusCode?: number; // absent if no HTTP response came back at all (timeout/DNS/connection error)
+  latencyMs?: number; // only set when up=true — a down site has no meaningful response time
+  error?: string; // human-readable failure reason, only set when up=false
 }
 
 /**
@@ -35,11 +35,11 @@ export async function checkSite(url: string): Promise<CheckResult> {
   try {
     const response = await fetch(url, {
       signal: controller.signal, // lets the timeout above actually cancel this fetch
-      redirect: 'manual',        // a 3xx counts as "up" on its own — don't chase the redirect
+      redirect: "manual", // a 3xx counts as "up" on its own — don't chase the redirect
     });
 
-    await response.arrayBuffer();  // wait for the full body, not just headers, before stopping the clock
-    clearTimeout(timeoutId);       // check finished — cancel the pending timeout
+    await response.arrayBuffer(); // wait for the full body, not just headers, before stopping the clock
+    clearTimeout(timeoutId); // check finished — cancel the pending timeout
 
     const latencyMs = Date.now() - startedAt;
     const statusCode = response.status;
@@ -49,7 +49,7 @@ export async function checkSite(url: string): Promise<CheckResult> {
     return {
       url,
       up,
-      statusCode,                        // always captured, useful for debugging either way
+      statusCode, // always captured, useful for debugging either way
       latencyMs: up ? latencyMs : undefined, // don't record latency for a failed check — it'd be misleading
     };
   } catch (err) {
@@ -77,7 +77,9 @@ export async function checkSite(url: string): Promise<CheckResult> {
  */
 export async function handler(event: CanaryEvent): Promise<CheckResult> {
   if (!event?.url) {
-    throw new Error('event.url is required, e.g. { "url": "https://example.com" }');
+    throw new Error(
+      'event.url is required, e.g. { "url": "https://example.com" }',
+    );
   }
 
   const result = await checkSite(event.url);

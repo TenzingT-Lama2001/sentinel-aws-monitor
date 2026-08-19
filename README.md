@@ -19,6 +19,7 @@ This project is being built as the NIT6150 Advanced Project at Victoria Universi
 Sentinel is deployed as a single CDK stack, instantiated independently per AWS Region. Each regional instance creates its own fully independent set of resources (Lambda, S3, EventBridge, CloudWatch, SNS, DynamoDB) with no cross-region dependencies, so monitoring can continue uninterrupted in one region even if another becomes unavailable.
 
 ![Architecture of the Project](architecture.png)
+
 ```
 S3 (site list) → Lambda (canary/crawler) → CloudWatch (metrics)
                                                   ├── CloudWatch Dashboard
@@ -30,23 +31,24 @@ Each regional stack contains:
 
 - **AWS Lambda** — website availability and latency checks
 - **Amazon S3** — monitored-site configuration (`sites.json`)
-- **Amazon EventBridge** — scheduled monitoring trigger *(planned — Phase 2)*
-- **Amazon CloudWatch** — metrics, dashboards, and alarms *(metrics: Phase 2; alarms/dashboard: Phase 2–3)*
-- **Amazon SNS** — alert notifications *(planned — Phase 3)*
-- **Amazon DynamoDB** — incident records *(planned — Phase 3)*
+- **Amazon EventBridge** — scheduled monitoring trigger _(planned — Phase 2)_
+- **Amazon CloudWatch** — metrics, dashboards, and alarms _(metrics: Phase 2; alarms/dashboard: Phase 2–3)_
+- **Amazon SNS** — alert notifications _(planned — Phase 3)_
+- **Amazon DynamoDB** — incident records _(planned — Phase 3)_
 
 ## AWS Regions
 
-| Region | Location | Status |
-|---|---|---|
-| `ap-southeast-2` | Sydney | Primary deployment region |
-| *TBD* | *TBD (candidate: Singapore, `ap-southeast-1`)* | Second region, to be finalised during multi-region deployment (Phase 2) |
+| Region           | Location                                       | Status                                                                  |
+| ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
+| `ap-southeast-2` | Sydney                                         | Primary deployment region                                               |
+| _TBD_            | _TBD (candidate: Singapore, `ap-southeast-1`)_ | Second region, to be finalised during multi-region deployment (Phase 2) |
 
 The same CDK stack definition is deployed to each region independently — regional resources are intentionally isolated so monitoring can continue from one region if another becomes unavailable.
 
 ## Project Status
 
 🚧 **In progress** — currently in Phase 2 (crawler and S3 site configuration). See the project proposal and System Analysis and Design Report in `docs/` for the full phased plan.
+
 
 | Feature | Status |
 |---|---|
@@ -60,6 +62,7 @@ The same CDK stack definition is deployed to each region independently — regio
 | SNS notifications | ⬜ Not yet implemented |
 | DynamoDB incident logging | ⬜ Not yet implemented |
 
+
 ## Features
 
 ### Website monitoring
@@ -71,7 +74,7 @@ The crawler Lambda reads the monitored-site list from S3 (`config/sites.json`). 
 - Response latency (milliseconds)
 - Error information when a request fails or times out
 
-### CloudWatch metrics *(planned)*
+### CloudWatch metrics _(planned)_
 
 Custom metrics will be published under the namespace `Sentinel/Monitoring`:
 
@@ -80,7 +83,7 @@ Custom metrics will be published under the namespace `Sentinel/Monitoring`:
 
 Metrics will use the website name as a dimension (e.g. `Site = example-site-01`).
 
-### CloudWatch dashboards *(planned)*
+### CloudWatch dashboards _(planned)_
 
 Each regional stack will create a regional CloudWatch Dashboard including:
 
@@ -90,7 +93,7 @@ Each regional stack will create a regional CloudWatch Dashboard including:
 
 Dashboard names will follow the pattern `Sentinel-<region>`, e.g. `Sentinel-ap-southeast-2`.
 
-### CloudWatch alarms *(planned)*
+### CloudWatch alarms _(planned)_
 
 Two alarms are planned for Phase 3:
 
@@ -99,7 +102,7 @@ Two alarms are planned for Phase 3:
 
 Alarm notifications will be connected to an SNS topic.
 
-### DynamoDB incident records *(planned)*
+### DynamoDB incident records _(planned)_
 
 Monitoring incidents will be stored in a regional DynamoDB table, with each record containing:
 
@@ -147,6 +150,7 @@ sentinel-aws-monitor/
 ├── README.md
 └── tsconfig.json
 ```
+
 ## Prerequisites
 
 - Node.js (LTS)
@@ -159,7 +163,7 @@ sentinel-aws-monitor/
 ```bash
 # Clone the repository
 git clone https://github.com/TenzingT-Lama2001/sentinel-aws-monitor.git
-cd sentinel-aws-monitor/infra
+cd sentinel-aws-monitor
 
 # Install dependencies
 npm install

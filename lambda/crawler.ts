@@ -5,17 +5,21 @@
  * must not stop the others from being checked — see crawl() below.
  */
 
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { checkSite, CheckResult } from './canary';
-import { MonitoredSite } from './site-config';
-import { CloudWatchClient, MetricDatum, PutMetricDataCommand, StandardUnit } from '@aws-sdk/client-cloudwatch';
-
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { checkSite, CheckResult } from "./canary";
+import { MonitoredSite } from "./site-config";
+import {
+  CloudWatchClient,
+  MetricDatum,
+  PutMetricDataCommand,
+  StandardUnit,
+} from "@aws-sdk/client-cloudwatch";
 
 const s3 = new S3Client({}); // created once, reused across invocations
-const cloudwatch = new CloudWatchClient({})
-const CONFIG_BUCKET = process.env.SITE_CONFIG_BUCKET;       // set by CDK, no fallback — a missing bucket is fatal
-const CONFIG_KEY = process.env.SITE_CONFIG_KEY ?? 'sites.json'; // safe default if unset
-const METRIC_NAMESPACE = process.env.METRIC_NAMESPACE ?? 'WebsiteMonitoring';
+const cloudwatch = new CloudWatchClient({});
+const CONFIG_BUCKET = process.env.SITE_CONFIG_BUCKET; // set by CDK, no fallback — a missing bucket is fatal
+const CONFIG_KEY = process.env.SITE_CONFIG_KEY ?? "sites.json"; // safe default if unset
+const METRIC_NAMESPACE = process.env.METRIC_NAMESPACE ?? "WebsiteMonitoring";
 /** One site's check result, tagged with which site it belongs to. */
 export interface CrawlerSiteResult extends CheckResult {
   siteId: string;
@@ -29,11 +33,13 @@ export interface CrawlerSiteResult extends CheckResult {
  */
 async function loadSiteConfig(): Promise<MonitoredSite[]> {
   if (!CONFIG_BUCKET) {
-    throw new Error('SITE_CONFIG_BUCKET environment variable is not set');
+    throw new Error("SITE_CONFIG_BUCKET environment variable is not set");
   }
 
   // fetch the file from S3
-  const response = await s3.send(new GetObjectCommand({ Bucket: CONFIG_BUCKET, Key: CONFIG_KEY }));
+  const response = await s3.send(
+    new GetObjectCommand({ Bucket: CONFIG_BUCKET, Key: CONFIG_KEY }),
+  );
 
   // S3 returns a stream — convert it to a plain string
   const body = await response.Body?.transformToString();
@@ -44,7 +50,9 @@ async function loadSiteConfig(): Promise<MonitoredSite[]> {
   // parse and sanity-check the JSON before trusting it
   const sites = JSON.parse(body) as MonitoredSite[];
   if (!Array.isArray(sites)) {
-    throw new Error(`s3://${CONFIG_BUCKET}/${CONFIG_KEY} must contain a JSON array`);
+    throw new Error(
+      `s3://${CONFIG_BUCKET}/${CONFIG_KEY} must contain a JSON array`,
+    );
   }
 
   return sites;
@@ -69,7 +77,7 @@ export async function crawl(): Promise<CrawlerSiteResult[]> {
 
   // turn allSettled's per-site outcomes back into plain results
   return outcomes.map((outcome, i) => {
-    if (outcome.status === 'fulfilled') {
+    if (outcome.status === "fulfilled") {
       return outcome.value; // normal case — the check completed, up or down
     }
 
@@ -82,50 +90,57 @@ export async function crawl(): Promise<CrawlerSiteResult[]> {
       name: site.name,
       url: site.url,
       up: false,
-      error: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
+      error:
+        outcome.reason instanceof Error
+          ? outcome.reason.message
+          : String(outcome.reason),
     };
   });
 }
 
-/** 
-  * Publishes each site's Availability (always) and Latency only when ip to Cloudwatch, dimensioned by SiteId so each site gets its own tie series under the shared namespace
-*/
+/**
+ * Publishes each site's Availability (always) and Latency only when ip to Cloudwatch, dimensioned by SiteId so each site gets its own tie series under the shared namespace
+ */
 
 async function publishMetrics(results: CrawlerSiteResult[]): Promise<void> {
   const timestamp = new Date();
 
-
   const metricData: MetricDatum[] = results.flatMap((result) => {
-    const dimensions = [{
-      Name: 'SiteId', Value: result.siteId
-    }];
+    const dimensions = [
+      {
+        Name: "SiteId",
+        Value: result.siteId,
+      },
+    ];
 
     const data: MetricDatum[] = [
       {
-        MetricName: 'Availability',
+        MetricName: "Availability",
         Dimensions: dimensions,
         Timestamp: timestamp,
         Unit: StandardUnit.Count,
-        Value: result.up ? 1 : 0.
-      }
+        Value: result.up ? 1 : 0,
+      },
     ];
 
     if (result.latencyMs !== undefined) {
       data.push({
-        MetricName: 'Latency',
+        MetricName: "Latency",
         Dimensions: dimensions,
         Timestamp: timestamp,
         Unit: StandardUnit.Milliseconds,
-        Value: result.latencyMs
-      })
+        Value: result.latencyMs,
+      });
     }
     return data;
-  })
+  });
 
-  await cloudwatch.send(new PutMetricDataCommand({
-    Namespace: METRIC_NAMESPACE,
-    MetricData: metricData
-  }));
+  await cloudwatch.send(
+    new PutMetricDataCommand({
+      Namespace: METRIC_NAMESPACE,
+      MetricData: metricData,
+    }),
+  );
 }
 /**
  * Lambda entry point. The incoming event is ignored — every run checks the
