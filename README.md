@@ -57,9 +57,9 @@ The same CDK stack definition is deployed to each region independently — regio
 | Scheduled execution (EventBridge) | ✅ Implemented |
 | CloudWatch metric publishing | ✅ Implemented |
 | CloudWatch Dashboard | ✅ Implemented |
-| Multi-region deployment | ⬜ Not yet implemented |
-| CloudWatch Alarms | ⬜ Not yet implemented |
-| SNS notifications | ⬜ Not yet implemented |
+| Multi-region deployment | ✅ Implemented |
+| CloudWatch Alarms | ✅ Implemented |
+| SNS notifications | ✅ Implemented |
 | DynamoDB incident logging | ⬜ Not yet implemented |
 
 
@@ -193,6 +193,14 @@ Hit a design decision that hasn't been fully resolved yet: how the dashboard sho
 ## Sprint 3 (upcoming)
 
 Starting Phase 3: setting up alarms that trigger automatically when a website's speed or uptime crosses a certain limit, connecting those alarms to a notification system so the team gets an email when something goes wrong, and building a permanent incident log to record what happened, when, and why. Once that's working, testing the whole flow end-to-end by deliberately breaking a site to confirm alerts and logging work as expected. Alongside this, continuing to update the System Analysis and Design Report and other documentation to match what's actually been built, and preparing for the final demonstration and submission.
+
+## Sprint 3
+Completed multi-region deployment (Sydney + Singapore, both running independently). Set up the CI pipeline (lint, type-check, test, cdk synth on every pull request), CD is still pending, deployment remains manual for now. Added ESLint and Prettier for consistent code style and formatting. Reviewed Samrat's SNS implementation and adjusted the alarm thresholds to match what's documented in the SAD report. Added runtime validation for sites.json so a malformed config fails clearly at synth time instead of causing confusing downstream errors.
+
+Manually tested the full alert pipeline end-to-end, simulated outage, and recovery, and confirmed email notifications fired correctly in every case, including that we only get notified on genuine state changes rather than repeatedly while an issue persists.
+
+## Sprint 4 (Upcoming)
+For the next sprint, the plan is to test the incident logging pipeline end-to-end with DynamoDB ,triggering real alarms and confirming incidents get correctly written. I'll also write unit tests for the key Lambda functions to lock in current behavior and catch errors early. Finally, I'll set up the CD pipeline — automated deployment to both regions on merge to main, including the AWS authentication setup (OIDC) needed to let GitHub Actions deploy securely.
 
 ## License
 
