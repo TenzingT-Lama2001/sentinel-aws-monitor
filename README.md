@@ -218,11 +218,11 @@ Worked on finalising the system analysis and design report .Updated few details 
 
 Hit a design decision that hasn't been fully resolved yet: how the dashboard should update when websites are added or removed from the monitoring list. Right now, it only updates on manual redeploy, which works but isn't ideal long term. Looked at more automatic options, but they come with their own downsides, such as leftover resources that don't clean up properly, or the dashboard still showing data for sites already removed. This needs a decision before the dashboard can be considered fully finished.
 
-## Sprint 3 (upcoming)
+## Sprint 3 
 
 Configured an ec2 instance where AWS CDK application was built to validate infrastructure changes. Implemented SNS topic and Email subscription for Sentinel Monitoring Alerts. Configured cloud watch availability alarm for monitored website and connected the alarms to SNS so that notifications are automatically sent when the website availability falls below configured alarm threshold.
 
-## Sprint 4
+## Sprint 4 (upcoming)
 Initialize Dynamo DB and create a lambda function to record all the incident report in dynamo db permanently. Test the system end to end to make sure every record is stored in dynamo db.
 
 ## License
