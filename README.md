@@ -99,9 +99,11 @@ Two alarms are planned for Phase 3:
 
 Alarm notifications will be connected to an SNS topic.
 
+
 ### DynamoDB incident records *(planned)*
 
 Monitoring incidents will be stored in a regional DynamoDB table, with each record containing:
+
 
 - Incident ID
 - Website name and URL
@@ -109,6 +111,18 @@ Monitoring incidents will be stored in a regional DynamoDB table, with each reco
 - Timestamp and alarm state
 
 Each AWS region will have its own incident table.
+
+### SNS notifications
+
+An Amazon SNS topic is used to deliver monitoring alerts directly to the configured email address. CloudWatch availability alarms publish notifications to the SNS topic whenever a monitored site's availability falls below the expected value.
+
+The email recipient must confirm the SNS subscription before receiving notifications.
+
+The SNS notification flow is:
+
+```text
+CloudWatch Alarm - >SNS Topic ->Email Notification
+```
 
 ## Tech Stack
 
