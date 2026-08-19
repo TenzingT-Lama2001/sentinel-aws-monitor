@@ -101,6 +101,38 @@ Two alarms are planned for Phase 3:
 - **Latency alarm** — triggers when response latency exceeds the configured threshold
 
 Alarm notifications will be connected to an SNS topic.
+## SNS Email Notification
+
+Implemented an **SNS notification system** for Sentinel.
+
+- **SNS Topic** → Receives CloudWatch alarm notifications.
+- **Email Subscription** → Sends alerts to the configured email.
+- **CloudWatch Alarm** → Triggers when website availability falls below `1`.
+- **SNS Action** → Connects the CloudWatch alarm to the SNS topic.
+- **EC2** → Used as the development environment for implementing the feature.
+
+### Availability
+
+- **Availability = `1`** → The website is **up and reachable**. No alarm is triggered.
+- **Availability = `0`** → The website is **down/unreachable**. The CloudWatch alarm is triggered and SNS sends an email notification.
+
+### SNS Flow
+
+```text
+Website
+   ↓
+Crawler Lambda
+   ↓
+Availability = 1 or 0
+   ↓
+CloudWatch Metric
+   ↓
+CloudWatch Alarm
+   ↓
+SNS Topic
+   ↓
+Email Notification
+```
 
 ### DynamoDB incident records _(planned)_
 
@@ -181,18 +213,21 @@ cdk deploy
 ## Sprints
 ## Sprint 1 
 
-Created the AWS account and set up IAM roles, installed the AWS CDK, and initialized the TypeScript application. Committed all progress to GitHub, updated the README file, and finalized the project proposal.
+Worked on project proposal. Reviewed the project requirements and explored a lil bit about aws services like Cloudwatch alarms and metrics.
 
 ## Sprint 2 
-Created the Lambda function to check a single website's availability, then built it out into a crawler that could check multiple websites at once. Set up an automatic schedule so it runs on its own without needing to be triggered manually. Connected it to CloudWatch so the results get recorded every time it runs, and built a CloudWatch Dashboard so the team can visually see the health of all the sites in one place. Alongside this, created the initial draft of the System Analysis and Design Report, and the whole group worked together from there to review and finalize it. Also updated the GitHub setup to require approval before changes go live, after an accidental unapproved update.
+Worked on finalising the system analysis and design report .Updated few details about the project description on the read me file with architecture figures. Setup the project locally in my machine. Added extension in vscode for aws setups.
 
 ## Blockers (Sprint 2)
 
 Hit a design decision that hasn't been fully resolved yet: how the dashboard should update when websites are added or removed from the monitoring list. Right now, it only updates on manual redeploy, which works but isn't ideal long term. Looked at more automatic options, but they come with their own downsides, such as leftover resources that don't clean up properly, or the dashboard still showing data for sites already removed. This needs a decision before the dashboard can be considered fully finished.
 
-## Sprint 3 (upcoming)
+## Sprint 3 
 
-Starting Phase 3: setting up alarms that trigger automatically when a website's speed or uptime crosses a certain limit, connecting those alarms to a notification system so the team gets an email when something goes wrong, and building a permanent incident log to record what happened, when, and why. Once that's working, testing the whole flow end-to-end by deliberately breaking a site to confirm alerts and logging work as expected. Alongside this, continuing to update the System Analysis and Design Report and other documentation to match what's actually been built, and preparing for the final demonstration and submission.
+Configured an ec2 instance where AWS CDK application was built to validate infrastructure changes. Implemented SNS topic and Email subscription for Sentinel Monitoring Alerts. Configured cloud watch availability alarm for monitored website and connected the alarms to SNS so that notifications are automatically sent when the website availability falls below configured alarm threshold.
+
+## Sprint 4 (upcoming)
+Initialize Dynamo DB and create a lambda function to record all the incident report in dynamo db permanently. Test the system end to end to make sure every record is stored in dynamo db.
 
 ## Sprint 3
 Completed multi-region deployment (Sydney + Singapore, both running independently). Set up the CI pipeline (lint, type-check, test, cdk synth on every pull request), CD is still pending, deployment remains manual for now. Added ESLint and Prettier for consistent code style and formatting. Reviewed Samrat's SNS implementation and adjusted the alarm thresholds to match what's documented in the SAD report. Added runtime validation for sites.json so a malformed config fails clearly at synth time instead of causing confusing downstream errors.
