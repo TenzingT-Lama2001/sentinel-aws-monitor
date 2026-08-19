@@ -98,16 +98,37 @@ Two alarms are planned for Phase 3:
 - **Latency alarm** — triggers when response latency exceeds the configured threshold
 
 Alarm notifications will be connected to an SNS topic.
-### SNS notifications
+## SNS Email Notification
 
-An Amazon SNS topic is used to deliver monitoring alerts directly to the configured email address. CloudWatch availability alarms publish notifications to the SNS topic whenever a monitored site's availability falls below the expected value.
+Implemented an **SNS notification system** for Sentinel.
 
-The email recipient must confirm the SNS subscription before receiving notifications.
+- **SNS Topic** → Receives CloudWatch alarm notifications.
+- **Email Subscription** → Sends alerts to the configured email.
+- **CloudWatch Alarm** → Triggers when website availability falls below `1`.
+- **SNS Action** → Connects the CloudWatch alarm to the SNS topic.
+- **EC2** → Used as the development environment for implementing the feature.
 
-The SNS notification flow is:
+### Availability
+
+- **Availability = `1`** → The website is **up and reachable**. No alarm is triggered.
+- **Availability = `0`** → The website is **down/unreachable**. The CloudWatch alarm is triggered and SNS sends an email notification.
+
+### SNS Flow
 
 ```text
-CloudWatch Alarm - >SNS Topic ->Email Notification
+Website
+   ↓
+Crawler Lambda
+   ↓
+Availability = 1 or 0
+   ↓
+CloudWatch Metric
+   ↓
+CloudWatch Alarm
+   ↓
+SNS Topic
+   ↓
+Email Notification
 ```
 
 ### DynamoDB incident records *(planned)*
