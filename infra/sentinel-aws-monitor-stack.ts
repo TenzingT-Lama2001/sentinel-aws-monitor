@@ -1,29 +1,29 @@
-import * as path from 'path';
-import * as fs from 'fs';
-import * as cdk from 'aws-cdk-lib/core';
-import { Construct } from 'constructs';
-import { NodejsFunction } from 'aws-cdk-lib/aws-lambda-nodejs';
-import { Runtime } from 'aws-cdk-lib/aws-lambda';
-import * as logs from 'aws-cdk-lib/aws-logs';
-import * as s3 from 'aws-cdk-lib/aws-s3';
-import * as events from 'aws-cdk-lib/aws-events';
-import * as targets from 'aws-cdk-lib/aws-events-targets';
-import * as iam from 'aws-cdk-lib/aws-iam';
-import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
-import * as cwActions from 'aws-cdk-lib/aws-cloudwatch-actions';
-import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
-import * as sns from 'aws-cdk-lib/aws-sns';
-import * as subscriptions from 'aws-cdk-lib/aws-sns-subscriptions';
-import type { MonitoredSite } from '../lambda/site-config';
-import { validateMonitoredSites } from '../validation/validateMonitoredSites';
+import * as path from "path";
+import * as fs from "fs";
+import * as cdk from "aws-cdk-lib/core";
+import { Construct } from "constructs";
+import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
+import { Runtime } from "aws-cdk-lib/aws-lambda";
+import * as logs from "aws-cdk-lib/aws-logs";
+import * as s3 from "aws-cdk-lib/aws-s3";
+import * as events from "aws-cdk-lib/aws-events";
+import * as targets from "aws-cdk-lib/aws-events-targets";
+import * as iam from "aws-cdk-lib/aws-iam";
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
+import * as cwActions from "aws-cdk-lib/aws-cloudwatch-actions";
+import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
+import type { MonitoredSite } from "../lambda/site-config";
+import { validateMonitoredSites } from "../validation/validateMonitoredSites";
 
 // Filename the crawler reads from S3 — shared so the bucket grant and the
 // Lambda's env var always agree on the same file (see docs/METRICS.md).
-const SITE_CONFIG_KEY = 'sites.json';
+const SITE_CONFIG_KEY = "sites.json";
 
 // CloudWatch namespace the crawler publishes Availability/Latency under —
 // shared between the IAM condition below and the crawler's env var.
-const METRIC_NAMESPACE = 'WebsiteMonitoring';
+const METRIC_NAMESPACE = "WebsiteMonitoring";
 
 export class SentinelAwsMonitorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -39,11 +39,11 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
      * redeploy. Destroyed with the stack, safe here since it only ever
      * holds this one small config file.
      */
-    const siteConfigBucket = new s3.Bucket(this, 'SiteConfigBucket', {
+    const siteConfigBucket = new s3.Bucket(this, "SiteConfigBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL, // never allow public access
-      enforceSSL: true,                                  // reject non-HTTPS requests
-      removalPolicy: cdk.RemovalPolicy.DESTROY,           // delete bucket on cdk destroy
-      autoDeleteObjects: true,                            // empty it first, so destroy doesn't fail
+      enforceSSL: true, // reject non-HTTPS requests
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // delete bucket on cdk destroy
+      autoDeleteObjects: true, // empty it first, so destroy doesn't fail
     });
 
     // ---------------------------------------------------------------------
@@ -51,16 +51,16 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
     // triggered automatically on a schedule
     // ---------------------------------------------------------------------
 
-    const crawlerFunction = new NodejsFunction(this, 'CrawlerFunction', {
-      entry: path.join(__dirname, '..', 'lambda', 'crawler.ts'),
-      handler: 'handler',
+    const crawlerFunction = new NodejsFunction(this, "CrawlerFunction", {
+      entry: path.join(__dirname, "..", "lambda", "crawler.ts"),
+      handler: "handler",
       runtime: Runtime.NODEJS_24_X,
       timeout: cdk.Duration.seconds(15), // checks run concurrently — ~one check's worth, plus S3 fetch overhead
       memorySize: 256,
-      logGroup: this.createLogGroup('CrawlerLogGroup'),
+      logGroup: this.createLogGroup("CrawlerLogGroup"),
       environment: {
         SITE_CONFIG_BUCKET: siteConfigBucket.bucketName, // which bucket to read
-        SITE_CONFIG_KEY,                                 // which file in it
+        SITE_CONFIG_KEY, // which file in it
       },
       bundling: {
         bundleAwsSDK: true, // pin our tested SDK version instead of the runtime's default
@@ -72,16 +72,18 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
 
     // CloudWatch metrics have no ARN to grant against, so least-privilege
     // here means scoping by namespace via a condition instead of a resource.
-    crawlerFunction.addToRolePolicy(new iam.PolicyStatement({
-      actions: ['cloudwatch:PutMetricData'],
-      resources: ['*'],
-      conditions: {
-        StringEquals: { 'cloudwatch:namespace': METRIC_NAMESPACE },
-      },
-    }));
+    crawlerFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["cloudwatch:PutMetricData"],
+        resources: ["*"],
+        conditions: {
+          StringEquals: { "cloudwatch:namespace": METRIC_NAMESPACE },
+        },
+      }),
+    );
 
     // Run the crawler automatically every 5 minutes (EventScheduler)
-    new events.Rule(this, 'CrawlerRule', {
+    new events.Rule(this, "CrawlerRule", {
       schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
       targets: [new targets.LambdaFunction(crawlerFunction)],
     });
@@ -135,7 +137,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
      * of splitting into per-metric topics, which would just multiply the
      * number of things to subscribe to for no real benefit at this scale.
      */
-    const alertTopic = new sns.Topic(this, 'AlertTopic', {
+    const alertTopic = new sns.Topic(this, "AlertTopic", {
       topicName: `WebsiteMonitoringAlerts-${this.region}`,
     });
 
@@ -143,7 +145,9 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
     // must be clicked before alerts start arriving.
     const alertEmail = process.env.ALERT_EMAIL;
     if (!alertEmail) {
-      throw new Error('Please set the ALERT_EMAIL environment variable (see .env.example)');
+      throw new Error(
+        "Please set the ALERT_EMAIL environment variable (see .env.example)",
+      );
     }
     alertTopic.addSubscription(new subscriptions.EmailSubscription(alertEmail));
 
@@ -160,12 +164,17 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
      * from S3 at runtime, so the dashboard/alarms can't drift out of sync
      * with the actual monitored-sites list.
      */
-    const monitoredSites: MonitoredSite[] = validateMonitoredSites(JSON.parse(
-      fs.readFileSync(path.join(__dirname, '..', 'config', 'sites.json'), 'utf-8'),
-    ));
+    const monitoredSites: MonitoredSite[] = validateMonitoredSites(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(__dirname, "..", "config", "sites.json"),
+          "utf-8",
+        ),
+      ),
+    );
 
-    const dashboard = new cloudwatch.Dashboard(this, 'MonitoringDashboard', {
-      // Region-suffixed because dashboard names must be unique per account 
+    const dashboard = new cloudwatch.Dashboard(this, "MonitoringDashboard", {
+      // Region-suffixed because dashboard names must be unique per account
       dashboardName: `WebsiteMonitoring-${this.region}`,
     });
 
@@ -174,17 +183,17 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
 
       const availability = new cloudwatch.Metric({
         namespace: METRIC_NAMESPACE,
-        metricName: 'Availability',
+        metricName: "Availability",
         dimensionsMap,
-        statistic: 'Average',            // % of checks that succeeded in each period
+        statistic: "Average", // % of checks that succeeded in each period
         period: cdk.Duration.minutes(5), // matches the crawler's schedule
       });
 
       const latency = new cloudwatch.Metric({
         namespace: METRIC_NAMESPACE,
-        metricName: 'Latency',
+        metricName: "Latency",
         dimensionsMap,
-        statistic: 'Average',
+        statistic: "Average",
         period: cdk.Duration.minutes(5),
       });
 
@@ -206,28 +215,37 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       // Thresholds.
       // Reuses the same Metric objects the widgets above are built from, so the alarm
       // and the graph can never drift out of sync with each other.
-      const availabilityAlarm = availability.createAlarm(this, `AvailabilityAlarm-${site.siteId}`, {
-        alarmName: `${this.stackName}-Availability-${site.siteId}`,
-        alarmDescription: `${site.name} has been down for 2 consecutive checks (10 min)`,
-        comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD, // averaged value below 1 = a check failed
-        threshold: 1,
-        evaluationPeriods: 3,   // look at the last 3 periods (3 × 5 min = 15 min window)
-        datapointsToAlarm: 3,
-        treatMissingData: cloudwatch.TreatMissingData.BREACHING, // no data is exactly as bad as a failing check
-      });
+      const availabilityAlarm = availability.createAlarm(
+        this,
+        `AvailabilityAlarm-${site.siteId}`,
+        {
+          alarmName: `${this.stackName}-Availability-${site.siteId}`,
+          alarmDescription: `${site.name} has been down for 2 consecutive checks (10 min)`,
+          comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD, // averaged value below 1 = a check failed
+          threshold: 1,
+          evaluationPeriods: 3, // look at the last 3 periods (3 × 5 min = 15 min window)
+          datapointsToAlarm: 3,
+          treatMissingData: cloudwatch.TreatMissingData.BREACHING, // no data is exactly as bad as a failing check
+        },
+      );
 
-      const latencyAlarm = latency.createAlarm(this, `LatencyAlarm-${site.siteId}`, {
-        alarmName: `${this.stackName}-Latency-${site.siteId}`,
-        alarmDescription: `${site.name} latency has exceeded 3000ms for 2 consecutive checks (10 min)`,
-        comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-        threshold: 3000,
-        evaluationPeriods: 2,
-        datapointsToAlarm: 2,
-        // A down site has no latency data point at all that's already
-        // covered by the availability alarm above, so missing data here
-        // shouldn't also fire a second, redundant alarm for the same outage.
-        treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-      });
+      const latencyAlarm = latency.createAlarm(
+        this,
+        `LatencyAlarm-${site.siteId}`,
+        {
+          alarmName: `${this.stackName}-Latency-${site.siteId}`,
+          alarmDescription: `${site.name} latency has exceeded 3000ms for 2 consecutive checks (10 min)`,
+          comparisonOperator:
+            cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+          threshold: 3000,
+          evaluationPeriods: 2,
+          datapointsToAlarm: 2,
+          // A down site has no latency data point at all that's already
+          // covered by the availability alarm above, so missing data here
+          // shouldn't also fire a second, redundant alarm for the same outage.
+          treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        },
+      );
 
       // Both ALARM and OK transitions notify,
       //  OK is what lets the incident logger record a recovery, not just an outage.
@@ -238,13 +256,13 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
 
       // Tagged by metric type (FR8), lets alarms be filtered/searched in
       // the console without parsing alarm names.
-      cdk.Tags.of(availabilityAlarm).add('MetricType', 'Availability');
-      cdk.Tags.of(latencyAlarm).add('MetricType', 'Latency');
+      cdk.Tags.of(availabilityAlarm).add("MetricType", "Availability");
+      cdk.Tags.of(latencyAlarm).add("MetricType", "Latency");
     }
 
     // Printed after `cdk deploy` so the dashboard is one click away instead
     // of having to hunt for it by name in the console.
-    new cdk.CfnOutput(this, 'DashboardUrl', {
+    new cdk.CfnOutput(this, "DashboardUrl", {
       value: `https://${this.region}.console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${dashboard.dashboardName}`,
     });
   }
@@ -256,7 +274,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
    */
   private createLogGroup(id: string): logs.LogGroup {
     return new logs.LogGroup(this, id, {
-      retention: logs.RetentionDays.ONE_WEEK,   // auto-delete old logs, keeps cost predictable
+      retention: logs.RetentionDays.ONE_WEEK, // auto-delete old logs, keeps cost predictable
       removalPolicy: cdk.RemovalPolicy.DESTROY, // delete log group on cdk destroy
     });
   }

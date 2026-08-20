@@ -1,1 +1,0 @@
-[{"url":"https://example.com","up":true,"statusCode":200,"latencyMs":659,"siteId":"example-site","name":"Example Site"},{"url":"https://this-domain-does-not-exist-abc123.com","up":false,"error":"fetch failed","siteId":"broken-test-site","name":"Deliberately Broken Test Site"}]
