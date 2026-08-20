@@ -14,6 +14,7 @@ import {
   PutMetricDataCommand,
   StandardUnit,
 } from "@aws-sdk/client-cloudwatch";
+import { validateMonitoredSites } from "../validation/validateMonitoredSites";
 
 const s3 = new S3Client({}); // created once, reused across invocations
 const cloudwatch = new CloudWatchClient({});
@@ -48,14 +49,16 @@ async function loadSiteConfig(): Promise<MonitoredSite[]> {
   }
 
   // parse and sanity-check the JSON before trusting it
-  const sites = JSON.parse(body) as MonitoredSite[];
-  if (!Array.isArray(sites)) {
-    throw new Error(
-      `s3://${CONFIG_BUCKET}/${CONFIG_KEY} must contain a JSON array`,
-    );
-  }
+  const parsed = JSON.parse(body);
+  return validateMonitoredSites(parsed);
+  // const sites = JSON.parse(body) as MonitoredSite[];
+  // if (!Array.isArray(sites)) {
+  //   throw new Error(
+  //     `s3://${CONFIG_BUCKET}/${CONFIG_KEY} must contain a JSON array`,
+  //   );
+  // }
 
-  return sites;
+  // return sites;
 }
 
 /**
