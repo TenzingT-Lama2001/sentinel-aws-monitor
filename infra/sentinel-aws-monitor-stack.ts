@@ -1,6 +1,6 @@
 import * as path from "path";
 import * as fs from "fs";
-import * as cdk from "aws-cdk-lib/core";
+import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Runtime } from "aws-cdk-lib/aws-lambda";
@@ -98,13 +98,50 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
      * orders each site's incidents chronologically and lets both the ALARM
      * and the matching OK (recovery) row coexist under the same site.
      */
-    // const incidentTable = new dynamodb.Table(this, 'IncidentTable', {
-    //   tableName: `WebsiteMonitoringIncidents-${this.region}`,
-    //   partitionKey: { name: 'siteId', type: dynamodb.AttributeType.STRING },  // groups rows by site
-    //   sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },    // orders each site's incidents
-    //   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // write volume never justifies provisioned capacity
-    //   removalPolicy: cdk.RemovalPolicy.DESTROY,
-    // });
+    const incidentTable = new dynamodb.Table(this, "IncidentTable", {
+  tableName: `WebsiteMonitoringIncidents-${this.region}`,
+
+  partitionKey: {
+    name: "siteId",
+    type: dynamodb.AttributeType.STRING,
+  },
+
+  sortKey: {
+    name: "timestamp",
+    type: dynamodb.AttributeType.STRING,
+  },
+
+  billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+
+  removalPolicy: cdk.RemovalPolicy.DESTROY,
+});
+const incidentLoggerFunction = new NodejsFunction(
+  this,
+  "IncidentLoggerFunction",
+  {
+    entry: path.join(
+      __dirname,
+      "..",
+      "lambda",
+      "incident-logger.ts"
+    ),
+
+    handler: "handler",
+
+    runtime: Runtime.NODEJS_24_X,
+
+    timeout: cdk.Duration.seconds(10),
+
+    memorySize: 128,
+
+    environment: {
+      INCIDENT_TABLE_NAME: incidentTable.tableName,
+    },
+  }
+);
+incidentTable.grantWriteData(
+  incidentLoggerFunction
+);
 
     /**
      * Fan-out Lambda: turns each alarm-state-change SNS notification into
@@ -149,7 +186,15 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         "Please set the ALERT_EMAIL environment variable (see .env.example)",
       );
     }
+
     alertTopic.addSubscription(new subscriptions.EmailSubscription(alertEmail));
+   
+    alertTopic.addSubscription(
+  new subscriptions.LambdaSubscription(
+    incidentLoggerFunction
+  )
+);
+
 
     // Second subscriber on the same topic — every alarm/OK event reaches
     // both the human (email, above) and the incident logger, independently.
