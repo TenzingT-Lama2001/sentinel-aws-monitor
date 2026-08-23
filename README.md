@@ -60,7 +60,7 @@ The same CDK stack definition is deployed to each region independently — regio
 | Multi-region deployment | ✅ Implemented |
 | CloudWatch Alarms | ✅ Implemented |
 | SNS notifications | ✅ Implemented |
-| DynamoDB incident logging | ⬜ Not yet implemented |
+| DynamoDB incident logging | ✅ Not yet implemented |
 
 
 ## Features
@@ -102,16 +102,82 @@ Two alarms are planned for Phase 3:
 
 Alarm notifications will be connected to an SNS topic.
 
-### DynamoDB incident records _(planned)_
+### DynamoDB incident records
 
-Monitoring incidents will be stored in a regional DynamoDB table, with each record containing:
+Sentinel uses Amazon DynamoDB as the persistent incident store. When a CloudWatch alarm changes state, the event is published to the regional SNS topic. The incident-logging Lambda processes the notification and stores the event in DynamoDB.
 
-- Incident ID
-- Website name and URL
-- Metric type, measured value, and threshold
-- Timestamp and alarm state
+The system records both **ALARM** and **OK** state transitions, allowing the incident history to show both the start of an outage and its subsequent recovery.
 
-Each AWS region will have its own incident table.
+Each incident record contains information such as:
+
+- **Site ID** — identifies the monitored website
+- **Timestamp** — records when the alarm state changed
+- **Metric type** — availability or latency
+- **Alarm state** — `ALARM` or `OK`
+- **Measured value** — value associated with the monitoring event
+- **Threshold** — threshold that caused the alarm
+- **Website name and URL** — identifies the affected website
+- **Incident information** — additional details from the alarm notification
+
+The DynamoDB table uses the website's `siteId` as the partition key and the event `timestamp` as the sort key. This allows all incidents for a particular website to be queried efficiently while maintaining their chronological order.
+
+DynamoDB uses **PAY_PER_REQUEST** billing because the monitoring workload has relatively low and unpredictable write volume.
+
+The incident logging pipeline is designed to be independent of the email notification path. A single SNS alarm event can therefore be delivered to both the human notification channel and the incident logger.
+
+---
+
+## Incident Detection and Logging
+
+When a website violates a configured monitoring threshold, CloudWatch changes the corresponding alarm state to `ALARM`.
+
+The event follows this flow:
+
+1. CloudWatch detects the threshold violation.
+2. The alarm changes to the `ALARM` state.
+3. CloudWatch publishes the state change to the SNS topic.
+4. SNS delivers the event to the incident-logging Lambda.
+5. The Lambda parses the alarm notification.
+6. The incident is written to DynamoDB.
+7. When the website recovers, the alarm changes to `OK`.
+8. The recovery event is processed and stored in DynamoDB as well.
+
+This provides a persistent history of both failures and recoveries rather than relying only on temporary CloudWatch alarm states.
+
+---
+
+## Incident Logging Architecture
+
+The incident logging mechanism follows an event-driven serverless architecture. CloudWatch alarms act as the source of incident events, SNS provides the fan-out mechanism, and a dedicated Lambda function handles persistence.
+
+```text
+                    ┌─────────────────────┐
+                    │   CloudWatch Alarm   │
+                    └──────────┬──────────┘
+                               │
+                        ALARM / OK event
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │     SNS Topic       │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │ Incident Logger     │
+                    │      Lambda         │
+                    └──────────┬──────────┘
+                               │
+                         PutItem()
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │     DynamoDB        │
+                    │  Incident History   │
+                    └─────────────────────┘
+```
+
+This design keeps incident persistence decoupled from the monitoring Lambda. Website checks therefore remain focused on monitoring, while incident processing is handled independently through an event-driven workflow.
 
 ## Tech Stack
 
