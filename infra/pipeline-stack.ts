@@ -54,6 +54,11 @@ export class PipelineStack extends cdk.Stack {
                 // deploy account/region and validate ALERT_EMAIL is set — CodeBuild
                 // injects them as real env vars before `commands` runs.
                 partialBuildSpec: codebuild.BuildSpec.fromObject({
+                    phases: {
+                        install: {
+                            'runtime-versions': { nodejs: 20 }, // ← this line fixes it
+                        },
+                    },
                     env: {
                         'parameter-store': {
                             ALERT_EMAIL: `${SSM_PREFIX}/alert-email`,
