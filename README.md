@@ -268,6 +268,13 @@ Manually tested the full alert pipeline end-to-end, simulated outage, and recove
 ## Sprint 4 (Upcoming)
 For the next sprint, the plan is to test the incident logging pipeline end-to-end with DynamoDB ,triggering real alarms and confirming incidents get correctly written. I'll also write unit tests for the key Lambda functions to lock in current behavior and catch errors early. Finally, I'll set up the CD pipeline — automated deployment to both regions on merge to main, including the AWS authentication setup (OIDC) needed to let GitHub Actions deploy securely.
 
+Built the project's CI/CD pipeline using CDK Pipelines (CodePipeline, CodeBuild, CodeConnections) instead of GitHub Actions, per the requirement to keep everything as code. It pulls from GitHub, runs lint/build/test/synth in CodeBuild, and deploys both regions behind a manual approval gate, with sensitive config stored in SSM Parameter Store rather than hardcoded in the template.
+
+Blockers resolved: attached required node version in the buildspec, .env variable names were aligned with the code, the auto trigger issue turned out to be becuase of the actual GitHub app enabling push notifications had never been installed on the repo, spearate from the AWS-side authorization; installing it resolved the issue and the pipeline now triggers on push to the branch"
+
+## Sprint 4 (Blockers)
+nodejs version mismatch in CodeBuild's default image that crashed linting, naming mismatch in my .env file that caused the singapore deployment to silently land in the wrong region and create a duplicate pipeline, Pipeline nto auto triggering on push 
+
 ## License
 
 This project is submitted as coursework for NIT6150 Advanced Project, Victoria University.
