@@ -32,7 +32,7 @@ export class PipelineStack extends cdk.Stack {
         // the connection can actually pull from GitHub — see the
         // GitHubConnectionArn output below.
         const githubConnection = new codestarconnections.CfnConnection(this, 'GitHubConnection', {
-            connectionName: 'sentinel-aws-monitor-github',
+            connectionName: 'sentinel-aws-monitor-github-v2',
             providerType: 'GitHub',
         });
 
