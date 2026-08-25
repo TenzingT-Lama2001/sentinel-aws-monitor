@@ -39,7 +39,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
      * redeploy. Destroyed with the stack, safe here since it only ever
      * holds this one small config file.
      */
-    const siteConfigBucket = new s3.Bucket(this, "SiteConfigBucket", {
+    const siteConfigBucket = new s3.Bucket(this, `sentinel-site-config-${this.stackName.toLowerCase()}`, {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL, // never allow public access
       enforceSSL: true, // reject non-HTTPS requests
       removalPolicy: cdk.RemovalPolicy.DESTROY, // delete bucket on cdk destroy
