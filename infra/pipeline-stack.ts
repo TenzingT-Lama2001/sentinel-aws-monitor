@@ -6,42 +6,50 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as pipelines from 'aws-cdk-lib/pipelines';
 import { AppStage } from './app-stage'
 
-// Source repo the pipeline pulls from. CodeStar Connections (below) is the
-// AWS-recommended way to authorize GitHub access — the alternative, a
-// personal access token in Secrets Manager, means a token to rotate/leak.
+
+// Repo the pipeline pulls from, via CodeStar Connections.
 const GITHUB_OWNER_REPO = 'TenzingT-Lama2001/sentinel-aws-monitor';
 const GITHUB_BRANCH = 'tenzing/ci-cd';
 
-// SSM Parameter Store names the synth step reads its env vars from at build
-// time (see README's "Pipeline Setup" section for the one-time `aws ssm
-// put-parameter` commands that create these). Values never appear in the
-// CloudFormation template — CodeBuild resolves them at container start.
+
+// SSM paths the synth step reads at build time. CodeBuild resolves them at container start.
 const SSM_PREFIX = '/sentinel-aws-monitor';
 
-// CDK Pipelines (the "L3" pipelines module) instead of GitHub Actions, per
-// the project's everything-as-code goal:
-//  - CI: synth step runs lint/build/test/synth on every push.
-//  - CD: deploys AppStage (both AdvPStack regions) after a manual approval,
-//    so nothing touches real AWS resources without a human clicking approve.
+// Default CodeBuild image is Node 18; every step that runs npm ci/tsx needs 20+,
+// not just Synth — shared so the post-deploy check steps don't drift from it.
+const NODE_20_BUILD_SPEC = codebuild.BuildSpec.fromObject({
+    phases: {
+        install: {
+            'runtime-versions': { nodejs: 20 },
+        },
+    },
+});
+
+// CDK Pipelines instead of GitHub Actions, per the everything-as-code goal:
+// CI runs lint/build/test/synth every push; CD deploys both regions after
+// manual approval.
 export class PipelineStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
 
-        // Created here as code rather than pre-provisioned by hand, but AWS still
-        // requires a one-time manual OAuth authorization in the console before
-        // the connection can actually pull from GitHub — see the
-        // GitHubConnectionArn output below.
+        // Needs one manual OAuth authorization in the console before first use.
         const githubConnection = new codestarconnections.CfnConnection(this, 'GitHubConnection', {
             connectionName: 'sentinel-aws-monitor-github-v2',
             providerType: 'GitHub',
         });
 
+        // Pulled out so post-deploy check steps (Beta/Gamma, below) can check out
+        // the same source too — a CodeBuildStep gets no source at all by default.
+        const source = pipelines.CodePipelineSource.connection(GITHUB_OWNER_REPO, GITHUB_BRANCH, {
+            connectionArn: githubConnection.attrConnectionArn,
+        });
+
         const pipeline = new pipelines.CodePipeline(this, 'Pipeline', {
             pipelineName: 'SentinelAwsMonitorCI',
             synth: new pipelines.CodeBuildStep('Synth', {
-                input: pipelines.CodePipelineSource.connection(GITHUB_OWNER_REPO, GITHUB_BRANCH, {
-                    connectionArn: githubConnection.attrConnectionArn,
-                }),
+                // Equivalent of actions/checkout.
+                input: source,
+                // Same steps as the old ci.yml, as a plain array.
                 commands: [
                     'npm ci',
                     'npm run lint',
@@ -49,17 +57,15 @@ export class PipelineStack extends cdk.Stack {
                     'npm test',
                     'npx cdk synth',
                 ],
-                // AdvPStack's constructor reads these from process.env at synth
-                // time (see lib/adv-p-stack.ts / lib/app-stage.ts) to pick its
-                // deploy account/region and validate ALERT_EMAIL is set — CodeBuild
-                // injects them as real env vars before `commands` runs.
                 partialBuildSpec: codebuild.BuildSpec.fromObject({
                     phases: {
                         install: {
-                            'runtime-versions': { nodejs: 20 }, // ← this line fixes it
+                            // Default image is Node 18; deps need 20+.
+                            'runtime-versions': { nodejs: 20 },
                         },
                     },
                     env: {
+                        // Live SSM lookup, not a local .env.
                         'parameter-store': {
                             ALERT_EMAIL: `${SSM_PREFIX}/alert-email`,
                             AWS_ACCOUNT_ID: `${SSM_PREFIX}/aws-account-id`,
@@ -69,7 +75,9 @@ export class PipelineStack extends cdk.Stack {
                     },
                 }),
                 rolePolicyStatements: [
+                    // Read access, scoped to this project's SSM path only.
                     new iam.PolicyStatement({
+
                         actions: ['ssm:GetParameters'],
                         resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter${SSM_PREFIX}/*`],
                     }),
@@ -84,12 +92,31 @@ export class PipelineStack extends cdk.Stack {
             }),
         });
 
-        // CD: deploy both AdvPStack regions, gated behind a manual approval so a
-        // push to main never touches real AWS resources unattended.
-        pipeline.addStage(new AppStage(this, 'Production'), {
-            pre: [new pipelines.ManualApprovalStep('PromoteToProduction')],
+        // Beta: no gate, fast first check. Post-deploy smoke test runs against
+        // the real deployed Beta resources, so a broken deploy never reaches Gamma.
+        pipeline.addStage(new AppStage(this, 'Beta', { stageLabel: 'Beta' }), {
+            post: [new pipelines.CodeBuildStep('BetaSmokeTest', {
+                input: source,
+                commands: ['npm ci', 'npx tsx scripts/smoke-test-beta.ts'],
+                partialBuildSpec: NODE_20_BUILD_SPEC,
+            })],
         });
 
+        // Gamma: deeper, end-to-end verification against the real Gamma environment.
+        pipeline.addStage(new AppStage(this, 'Gamma', { stageLabel: 'Gamma' }), {
+            post: [new pipelines.CodeBuildStep('GammaVerification', {
+                input: source,
+                commands: ['npm ci', 'npx tsx scripts/verify-gamma.ts'],
+                partialBuildSpec: NODE_20_BUILD_SPEC,
+            })],
+        });
+
+
+        // Deploys both regions, gated behind manual approval.
+        pipeline.addStage(new AppStage(this, 'Production', { stageLabel: 'Prod' }), {
+            pre: [new pipelines.ManualApprovalStep('PromoteToProduction')],
+        });
+        // Prints the ARN to authorize once in the console.
         new cdk.CfnOutput(this, 'GitHubConnectionArn', {
             value: githubConnection.attrConnectionArn,
             description: 'One-time step: AWS Console > Developer Tools > Settings > Connections, '

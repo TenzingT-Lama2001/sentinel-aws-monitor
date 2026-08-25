@@ -138,7 +138,9 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
      * number of things to subscribe to for no real benefit at this scale.
      */
     const alertTopic = new sns.Topic(this, "AlertTopic", {
-      topicName: `WebsiteMonitoringAlerts-${this.region}`,
+      // Keyed by stack name, not just region — multiple stages (Beta/Gamma/Prod)
+      // deploy to the same account+region, and topic names must be unique there.
+      topicName: `WebsiteMonitoringAlerts-${this.stackName}`,
     });
 
     // SNS emails a confirmation link to this address on first deploy; it
@@ -174,8 +176,9 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
     );
 
     const dashboard = new cloudwatch.Dashboard(this, "MonitoringDashboard", {
-      // Region-suffixed because dashboard names must be unique per account
-      dashboardName: `WebsiteMonitoring-${this.region}`,
+      // Keyed by stack name, not just region — multiple stages (Beta/Gamma/Prod)
+      // deploy to the same account+region, and dashboard names must be unique there.
+      dashboardName: `WebsiteMonitoring-${this.stackName}`,
     });
 
     for (const site of monitoredSites) {
