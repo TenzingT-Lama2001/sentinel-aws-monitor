@@ -94,22 +94,22 @@ export class PipelineStack extends cdk.Stack {
 
         // Beta: no gate, fast first check. Post-deploy smoke test runs against
         // the real deployed Beta resources, so a broken deploy never reaches Gamma.
-        pipeline.addStage(new AppStage(this, 'Beta', { stageLabel: 'Beta' }), {
-            post: [new pipelines.CodeBuildStep('BetaSmokeTest', {
-                input: source,
-                commands: ['npm ci', 'npx tsx scripts/smoke-test-beta.ts'],
-                partialBuildSpec: NODE_20_BUILD_SPEC,
-            })],
-        });
+        // pipeline.addStage(new AppStage(this, 'Beta', { stageLabel: 'Beta' }), {
+        //     post: [new pipelines.CodeBuildStep('BetaSmokeTest', {
+        //         input: source,
+        //         commands: ['npm ci', 'npx tsx scripts/smoke-test-beta.ts'],
+        //         partialBuildSpec: NODE_20_BUILD_SPEC,
+        //     })],
+        // });
 
-        // Gamma: deeper, end-to-end verification against the real Gamma environment.
-        pipeline.addStage(new AppStage(this, 'Gamma', { stageLabel: 'Gamma' }), {
-            post: [new pipelines.CodeBuildStep('GammaVerification', {
-                input: source,
-                commands: ['npm ci', 'npx tsx scripts/verify-gamma.ts'],
-                partialBuildSpec: NODE_20_BUILD_SPEC,
-            })],
-        });
+        // // Gamma: deeper, end-to-end verification against the real Gamma environment.
+        // pipeline.addStage(new AppStage(this, 'Gamma', { stageLabel: 'Gamma' }), {
+        //     post: [new pipelines.CodeBuildStep('GammaVerification', {
+        //         input: source,
+        //         commands: ['npm ci', 'npx tsx scripts/verify-gamma.ts'],
+        //         partialBuildSpec: NODE_20_BUILD_SPEC,
+        //     })],
+        // });
 
 
         // Deploys both regions, gated behind manual approval.

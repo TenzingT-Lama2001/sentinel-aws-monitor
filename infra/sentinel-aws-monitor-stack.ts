@@ -43,7 +43,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL, // never allow public access
       enforceSSL: true, // reject non-HTTPS requests
       removalPolicy: cdk.RemovalPolicy.DESTROY, // delete bucket on cdk destroy
-      // autoDeleteObjects: true, // empty it first, so destroy doesn't fail
+      autoDeleteObjects: true, // empty it first, so destroy doesn't fail
     });
 
     // ---------------------------------------------------------------------
