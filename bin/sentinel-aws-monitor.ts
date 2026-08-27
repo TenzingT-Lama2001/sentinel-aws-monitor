@@ -7,13 +7,13 @@ const app = new cdk.App();
 new SentinelAwsMonitorStack(app, "SentinelAwsMonitorStack-Sydney", {
   env: {
     account: process.env.AWS_ACCOUNT_ID,
-    region: process.env.AWS_REGION_SYDNEY,
+    region: process.env.REGION_SYDNEY,
   },
 });
 
 new SentinelAwsMonitorStack(app, "SentinelAwsMonitorStack-Singapore", {
   env: {
     account: process.env.AWS_ACCOUNT_ID,
-    region: process.env.AWS_REGION_SINGAPORE,
+    region: process.env.REGION_SINGAPORE,
   },
 });
