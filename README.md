@@ -10,9 +10,9 @@ This project is being built as the NIT6150 Advanced Project at Victoria Universi
 
 ## Team
 
-- **Tenzing Tsering Lama** — Team Lead / Lead Developer
-- **Samrat Neupane** — Research and Testing
-- **Md. Malik** — Research and Testing
+- **Tenzing Tsering Lama** 
+- **Samrat Neupane** 
+- **Md. Malik** 
 
 ## Architecture
 
