@@ -7,6 +7,7 @@
 
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { checkSite, CheckResult } from "./canary";
+import { checkCertificate } from "./certificate";
 import { MonitoredSite } from "./site-config";
 import {
   CloudWatchClient,
@@ -25,6 +26,8 @@ const METRIC_NAMESPACE = process.env.METRIC_NAMESPACE ?? "WebsiteMonitoring";
 export interface CrawlerSiteResult extends CheckResult {
   siteId: string;
   name: string;
+  certificateDaysRemaining?: number; // whole days until the TLS cert expires
+  certificateError?: string; // why the cert check failed, if it did
 }
 
 /**
@@ -73,8 +76,18 @@ export async function crawl(): Promise<CrawlerSiteResult[]> {
   // kick off all checks concurrently
   const outcomes = await Promise.allSettled(
     sites.map(async (site): Promise<CrawlerSiteResult> => {
-      const result = await checkSite(site.url);
-      return { ...result, siteId: site.siteId, name: site.name }; // attach site metadata
+      // the HTTP check and the TLS check are independent — run them together
+      const [result, cert] = await Promise.all([
+        checkSite(site.url),
+        checkCertificate(site.url),
+      ]);
+      return {
+        ...result,
+        siteId: site.siteId,
+        name: site.name,
+        certificateDaysRemaining: cert.daysRemaining,
+        certificateError: cert.error,
+      };
     }),
   );
 
@@ -102,9 +115,12 @@ export async function crawl(): Promise<CrawlerSiteResult[]> {
 }
 
 /**
- * Publishes each site's Availability (always) and Latency only when ip to Cloudwatch, dimensioned by SiteId so each site gets its own tie series under the shared namespace
+ * Publishes each site's metrics to CloudWatch, dimensioned by SiteId so every
+ * site gets its own time series under the shared namespace:
+ *   - Availability          — always
+ *   - Latency               — only when the check succeeded (a down site has none)
+ *   - CertificateExpiryDays  — only when the TLS handshake produced a cert
  */
-
 async function publishMetrics(results: CrawlerSiteResult[]): Promise<void> {
   const timestamp = new Date();
 
@@ -133,6 +149,16 @@ async function publishMetrics(results: CrawlerSiteResult[]): Promise<void> {
         Timestamp: timestamp,
         Unit: StandardUnit.Milliseconds,
         Value: result.latencyMs,
+      });
+    }
+
+    if (result.certificateDaysRemaining !== undefined) {
+      data.push({
+        MetricName: "CertificateExpiryDays",
+        Dimensions: dimensions,
+        Timestamp: timestamp,
+        Unit: StandardUnit.None, // CloudWatch has no "days" unit
+        Value: result.certificateDaysRemaining,
       });
     }
     return data;

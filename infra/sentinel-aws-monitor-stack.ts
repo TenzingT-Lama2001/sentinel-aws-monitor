@@ -55,7 +55,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       entry: path.join(__dirname, "..", "lambda", "crawler.ts"),
       handler: "handler",
       runtime: Runtime.NODEJS_24_X,
-      timeout: cdk.Duration.seconds(15), // checks run concurrently — ~one check's worth, plus S3 fetch overhead
+      timeout: cdk.Duration.seconds(20), // checks run concurrently — ~one check's worth (HTTP + TLS probe each cap at 5s), plus S3 fetch and headroom
       memorySize: 256,
       logGroup: this.createLogGroup("CrawlerLogGroup"),
       environment: {
@@ -200,18 +200,35 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         period: cdk.Duration.minutes(5),
       });
 
+      const certExpiry = new cloudwatch.Metric({
+        namespace: METRIC_NAMESPACE,
+        metricName: "CertificateExpiryDays",
+        dimensionsMap,
+        statistic: "Minimum", // the closest-to-expiry reading in the period
+        // TESTING: matches the crawler's 5-min schedule so new datapoints show up
+        // immediately on the dashboard. Reverted to Duration.hours(1) later
+        // the value only moves once a day in real use, so 5-min is just noise long-term.
+        period: cdk.Duration.minutes(5),
+      });
+
       dashboard.addWidgets(
         new cloudwatch.GraphWidget({
           title: `${site.name} — Availability`,
           left: [availability],
           leftYAxis: { min: 0, max: 1 }, // Availability is always 0–1 — pin the axis so a healthy
           // site's flat line at 1 doesn't get auto-scaled into noise
-          width: 12, // half the dashboard's 24-column row
+          width: 8, // a third of the dashboard's 24-column row — all 3 widgets fit on one row
         }),
         new cloudwatch.GraphWidget({
           title: `${site.name} — Latency (ms)`,
           left: [latency],
-          width: 12,
+          width: 8,
+        }),
+        new cloudwatch.GraphWidget({
+          title: `${site.name} — TLS cert days remaining`,
+          left: [certExpiry],
+          leftYAxis: { min: 0 }, // clip the "expired" negatives — the alarm covers those
+          width: 8,
         }),
       );
 
@@ -250,9 +267,25 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         },
       );
 
+      const certExpiryAlarm = certExpiry.createAlarm(
+        this,
+        `CertExpiryAlarm-${site.siteId}`,
+        {
+          alarmName: `${this.stackName}-CertExpiry-${site.siteId}`,
+          alarmDescription: `${site.name} TLS certificate expires in under 14 days`,
+          comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+          threshold: 14, // days — enough lead time to renew before it bites
+          evaluationPeriods: 1, // the value is stable, no need to wait for confirmation
+          datapointsToAlarm: 1,
+          // No cert reading means the TLS handshake failed outright — the
+          // availability alarm already covers that, so don't double-fire here.
+          treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        },
+      );
+
       // Both ALARM and OK transitions notify,
       //  OK is what lets the incident logger record a recovery, not just an outage.
-      for (const alarm of [availabilityAlarm, latencyAlarm]) {
+      for (const alarm of [availabilityAlarm, latencyAlarm, certExpiryAlarm]) {
         alarm.addAlarmAction(new cwActions.SnsAction(alertTopic));
         alarm.addOkAction(new cwActions.SnsAction(alertTopic));
       }
@@ -261,6 +294,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       // the console without parsing alarm names.
       cdk.Tags.of(availabilityAlarm).add("MetricType", "Availability");
       cdk.Tags.of(latencyAlarm).add("MetricType", "Latency");
+      cdk.Tags.of(certExpiryAlarm).add("MetricType", "CertificateExpiry");
     }
 
     // Printed after `cdk deploy` so the dashboard is one click away instead

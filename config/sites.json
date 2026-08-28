@@ -23,5 +23,10 @@
     "siteId": "site-05",
     "url": "https://httpbin.org/status/201",
     "name": "HTTPBin Created Status"
+  },
+  {
+    "siteId": "site-06",
+    "url": "https://expired.badssl.com",
+    "name": "Expired Cert Test Site"
   }
 ]
