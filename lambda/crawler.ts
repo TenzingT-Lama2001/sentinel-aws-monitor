@@ -7,6 +7,8 @@
 
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { checkSite, CheckResult } from "./canary";
+import { checkCertificate } from "./certificate";
+import { checkDns } from "./dns";
 import { MonitoredSite } from "./site-config";
 import {
   CloudWatchClient,
@@ -25,6 +27,11 @@ const METRIC_NAMESPACE = process.env.METRIC_NAMESPACE ?? "WebsiteMonitoring";
 export interface CrawlerSiteResult extends CheckResult {
   siteId: string;
   name: string;
+  certificateDaysRemaining?: number;
+  certificateError?: string;
+  dnsResolved?: boolean;
+  dnsAddresses?: string[];
+  dnsError?: string;
 }
 
 /**
@@ -73,8 +80,22 @@ export async function crawl(): Promise<CrawlerSiteResult[]> {
   // kick off all checks concurrently
   const outcomes = await Promise.allSettled(
     sites.map(async (site): Promise<CrawlerSiteResult> => {
-      const result = await checkSite(site.url);
-      return { ...result, siteId: site.siteId, name: site.name }; // attach site metadata
+      const [result, cert, dns] = await Promise.all([
+        checkSite(site.url),
+        checkCertificate(site.url),
+        checkDns(site.url),
+      ]);
+
+      return {
+        ...result,
+        siteId: site.siteId,
+        name: site.name,
+        certificateDaysRemaining: cert.daysRemaining,
+        certificateError: cert.error,
+        dnsResolved: dns.resolved,
+        dnsAddresses: dns.addresses,
+        dnsError: dns.error,
+      };
     }),
   );
 
@@ -135,6 +156,27 @@ async function publishMetrics(results: CrawlerSiteResult[]): Promise<void> {
         Value: result.latencyMs,
       });
     }
+
+    if (result.dnsResolved !== undefined) {
+      data.push({
+        MetricName: "DNSResolution",
+        Dimensions: dimensions,
+        Timestamp: timestamp,
+        Unit: StandardUnit.Count,
+        Value: result.dnsResolved ? 1 : 0,
+      });
+    }
+
+    if (result.certificateDaysRemaining !== undefined) {
+      data.push({
+        MetricName: "CertificateExpiryDays",
+        Dimensions: dimensions,
+        Timestamp: timestamp,
+        Unit: StandardUnit.Count,
+        Value: result.certificateDaysRemaining,
+      });
+    }
+
     return data;
   });
 

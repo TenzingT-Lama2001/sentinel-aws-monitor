@@ -242,17 +242,43 @@ incidentTable.grantWriteData(
         period: cdk.Duration.minutes(5),
       });
 
+      const dnsResolution = new cloudwatch.Metric({
+        namespace: METRIC_NAMESPACE,
+        metricName: "DNSResolution",
+        dimensionsMap,
+        statistic: "Average",
+        period: cdk.Duration.minutes(5),
+      });
+
+      const certificateExpiry = new cloudwatch.Metric({
+        namespace: METRIC_NAMESPACE,
+        metricName: "CertificateExpiryDays",
+        dimensionsMap,
+        statistic: "Average",
+        period: cdk.Duration.minutes(5),
+      });
+
       dashboard.addWidgets(
         new cloudwatch.GraphWidget({
           title: `${site.name} — Availability`,
           left: [availability],
-          leftYAxis: { min: 0, max: 1 }, // Availability is always 0–1 — pin the axis so a healthy
-          // site's flat line at 1 doesn't get auto-scaled into noise
-          width: 12, // half the dashboard's 24-column row
+          leftYAxis: { min: 0, max: 1 },
+          width: 12,
         }),
         new cloudwatch.GraphWidget({
           title: `${site.name} — Latency (ms)`,
           left: [latency],
+          width: 12,
+        }),
+        new cloudwatch.GraphWidget({
+          title: `${site.name} — DNS Resolution`,
+          left: [dnsResolution],
+          leftYAxis: { min: 0, max: 1 },
+          width: 12,
+        }),
+        new cloudwatch.GraphWidget({
+          title: `${site.name} — SSL Expiry (days)`,
+          left: [certificateExpiry],
           width: 12,
         }),
       );
@@ -285,24 +311,47 @@ incidentTable.grantWriteData(
           threshold: 3000,
           evaluationPeriods: 2,
           datapointsToAlarm: 2,
-          // A down site has no latency data point at all that's already
-          // covered by the availability alarm above, so missing data here
-          // shouldn't also fire a second, redundant alarm for the same outage.
           treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
         },
       );
 
-      // Both ALARM and OK transitions notify,
-      //  OK is what lets the incident logger record a recovery, not just an outage.
-      for (const alarm of [availabilityAlarm, latencyAlarm]) {
+      const dnsAlarm = dnsResolution.createAlarm(
+        this,
+        `DnsAlarm-${site.siteId}`,
+        {
+          alarmName: `${this.stackName}-DNSResolution-${site.siteId}`,
+          alarmDescription: `${site.name} DNS resolution failed`,
+          comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+          threshold: 1,
+          evaluationPeriods: 2,
+          datapointsToAlarm: 2,
+          treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+        },
+      );
+
+      const certificateAlarm = certificateExpiry.createAlarm(
+        this,
+        `CertificateExpiryAlarm-${site.siteId}`,
+        {
+          alarmName: `${this.stackName}-CertificateExpiryDays-${site.siteId}`,
+          alarmDescription: `${site.name} SSL certificate is expiring soon`,
+          comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD,
+          threshold: 30,
+          evaluationPeriods: 1,
+          datapointsToAlarm: 1,
+          treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+        },
+      );
+
+      for (const alarm of [availabilityAlarm, latencyAlarm, dnsAlarm, certificateAlarm]) {
         alarm.addAlarmAction(new cwActions.SnsAction(alertTopic));
         alarm.addOkAction(new cwActions.SnsAction(alertTopic));
       }
 
-      // Tagged by metric type (FR8), lets alarms be filtered/searched in
-      // the console without parsing alarm names.
       cdk.Tags.of(availabilityAlarm).add("MetricType", "Availability");
       cdk.Tags.of(latencyAlarm).add("MetricType", "Latency");
+      cdk.Tags.of(dnsAlarm).add("MetricType", "DNSResolution");
+      cdk.Tags.of(certificateAlarm).add("MetricType", "CertificateExpiryDays");
     }
 
     // Printed after `cdk deploy` so the dashboard is one click away instead
