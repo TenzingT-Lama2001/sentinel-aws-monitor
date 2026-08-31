@@ -179,6 +179,40 @@ The incident logging mechanism follows an event-driven serverless architecture. 
 
 This design keeps incident persistence decoupled from the monitoring Lambda. Website checks therefore remain focused on monitoring, while incident processing is handled independently through an event-driven workflow.
 
+---
+
+### SSL Certificate Expiry Monitoring
+
+The system monitors the SSL/TLS certificates of configured HTTPS websites.
+
+- Retrieves the SSL/TLS certificate from the monitored website.
+- Reads the certificate expiration date.
+- Calculates the number of days remaining before expiration.
+- Publishes the result as the `CertificateExpiryDays` CloudWatch metric.
+- Creates a CloudWatch alarm when the certificate has fewer than 30 days remaining.
+
+---
+
+### DNS Resolution Monitoring
+
+The system also checks whether the DNS hostname of each monitored website can be resolved.
+
+- Extracts the hostname from the monitored URL.
+- Performs a DNS lookup.
+- Records successful DNS resolution as `1`.
+- Records failed DNS resolution as `0`.
+- Publishes the result as the `DNSResolution` CloudWatch metric.
+- Creates a CloudWatch alarm when DNS resolution fails.
+
+  ---
+
+### SSL and DNS Alarm Notifications
+
+The SSL certificate expiry and DNS resolution alarms use the existing SNS notification pipeline.
+When either alarm enters the `ALARM` state, an SNS notification is published.
+Notifications are also sent when the alarm returns to the `OK` state.
+Both the DNS and SSL alarms are connected to the same SNS topic used by the existing monitoring alarms.
+
 ## Tech Stack
 
 - **AWS CDK** (TypeScript) — Infrastructure as Code
