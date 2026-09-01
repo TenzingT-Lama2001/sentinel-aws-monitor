@@ -22,8 +22,11 @@ import { validateMonitoredSites } from "../validation/validateMonitoredSites";
 // Lambda's env var always agree on the same file (see docs/METRICS.md).
 const SITE_CONFIG_KEY = "sites.json";
 
-// CloudWatch namespace the crawler publishes Availability/Latency under —
-// shared between the IAM condition below and the crawler's env var.
+// Base CloudWatch namespace. Per stage it becomes "WebsiteMonitoring/<stage>"
+// (see `metricNamespace` in the constructor) so Beta/Gamma/Prod, which deploy
+// to the same account+region, don't write into and read from one shared
+// series. Shared between the IAM condition, the crawler's env var, and the
+// alarm/dashboard Metric definitions.
 const METRIC_NAMESPACE = "WebsiteMonitoring";
 
 // SSM SecureString parameter holding the Slack Incoming Webhook URL for
@@ -44,6 +47,15 @@ export interface SentinelAwsMonitorStackProps extends cdk.StackProps {
 export class SentinelAwsMonitorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: SentinelAwsMonitorStackProps) {
     super(scope, id, props);
+
+    // Stage-scoped metric namespace. Beta/Gamma/Prod deploy to the same
+    // account+region, so a bare "WebsiteMonitoring" would leave all three
+    // stages' crawlers writing to — and all three stages' alarms reading
+    // from — one shared series. A "/<stage>" suffix keeps them isolated.
+    // Local deploys (no stage) keep the bare namespace.
+    const metricNamespace = props?.stage
+      ? `${METRIC_NAMESPACE}/${props.stage}`
+      : METRIC_NAMESPACE;
 
     // ---------------------------------------------------------------------
     // Site configuration storage
@@ -78,6 +90,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       environment: {
         SITE_CONFIG_BUCKET: siteConfigBucket.bucketName, // which bucket to read
         SITE_CONFIG_KEY, // which file in it
+        METRIC_NAMESPACE: metricNamespace, // stage-scoped, must match the alarms below
       },
       bundling: {
         bundleAwsSDK: true, // pin our tested SDK version instead of the runtime's default
@@ -94,7 +107,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         actions: ["cloudwatch:PutMetricData"],
         resources: ["*"],
         conditions: {
-          StringEquals: { "cloudwatch:namespace": METRIC_NAMESPACE },
+          StringEquals: { "cloudwatch:namespace": metricNamespace },
         },
       }),
     );
@@ -249,7 +262,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       const dimensionsMap = { SiteId: site.siteId };
 
       const availability = new cloudwatch.Metric({
-        namespace: METRIC_NAMESPACE,
+        namespace: metricNamespace,
         metricName: "Availability",
         dimensionsMap,
         statistic: "Average", // % of checks that succeeded in each period
@@ -257,7 +270,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       });
 
       const latency = new cloudwatch.Metric({
-        namespace: METRIC_NAMESPACE,
+        namespace: metricNamespace,
         metricName: "Latency",
         dimensionsMap,
         statistic: "Average",
@@ -265,7 +278,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       });
 
       const certExpiry = new cloudwatch.Metric({
-        namespace: METRIC_NAMESPACE,
+        namespace: metricNamespace,
         metricName: "CertificateExpiryDays",
         dimensionsMap,
         statistic: "Minimum", // the closest-to-expiry reading in the period
