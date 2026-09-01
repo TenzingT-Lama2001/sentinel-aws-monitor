@@ -61,6 +61,16 @@ async function writeIncident(record: IncidentRecord): Promise<void> {
 export const handler: SNSHandler = async (event: SNSEvent) => {
     for (const record of event.Records) {
         const incident = toIncidentRecord(record.Sns.Message);
+
+        // The table records outages and recoveries. The latency/cert alarms
+        // also publish INSUFFICIENT_DATA to this topic now (for the Slack
+        // "no data" notification) — that's an operational signal, not an
+        // incident, so it doesn't belong in the table.
+        if (incident.state !== 'ALARM' && incident.state !== 'OK') {
+            console.log('Skipped non-incident state', JSON.stringify(incident));
+            continue;
+        }
+
         await writeIncident(incident);
         console.log('Logged incident', JSON.stringify(incident));
     }

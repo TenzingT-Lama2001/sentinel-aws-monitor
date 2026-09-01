@@ -27,8 +27,15 @@ interface CloudWatchAlarmMessage {
     // Always present in a CloudWatch alarm notification.
     AlarmDescription: string;
     NewStateValue: AlarmState;
+    OldStateValue: AlarmState;
     NewStateReason: string;
     StateChangeTime: string;
+    // Human region name, e.g. "Asia Pacific (Sydney)". Present on every
+    // CloudWatch alarm notification — the stack runs one copy per region.
+    Region: string;
+    // e.g. "arn:aws:cloudwatch:ap-southeast-2:123456789012:alarm:MyAlarm" —
+    // the only place the region *code* appears (needed to build console URLs).
+    AlarmArn: string;
     Trigger: {
         MetricName: string;
         Dimensions: Array<{ name: string; value: string }>;
@@ -43,7 +50,10 @@ export interface ParsedAlarm {
     description: string;
     metricName: string;
     state: AlarmState;
+    previousState: AlarmState;
     reason: string;
+    region: string;      // display name, e.g. "Asia Pacific (Sydney)"
+    regionCode: string;  // e.g. "ap-southeast-2", for console URLs
 }
 
 export function parseAlarmMessage(rawMessage: string): ParsedAlarm {
@@ -55,6 +65,9 @@ export function parseAlarmMessage(rawMessage: string): ParsedAlarm {
         throw new Error(`Alarm message for "${message.AlarmName}" has no ${SITE_DIMENSION} dimension`);
     }
 
+    // arn:aws:cloudwatch:<region>:<account>:alarm:<name>
+    const regionCode = message.AlarmArn.split(':')[3] ?? '';
+
     return {
         siteId,
         timestamp: message.StateChangeTime,
@@ -62,6 +75,9 @@ export function parseAlarmMessage(rawMessage: string): ParsedAlarm {
         description: message.AlarmDescription,
         metricName: message.Trigger.MetricName,
         state: message.NewStateValue,
+        previousState: message.OldStateValue,
         reason: message.NewStateReason,
+        region: message.Region,
+        regionCode,
     };
 }
