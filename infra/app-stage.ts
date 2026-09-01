@@ -21,11 +21,13 @@ export class AppStage extends cdk.Stage {
 
         new SentinelAwsMonitorStack(this, 'Singapore', {
             stackName: `SentinelAwsMonitorStack-Singapore-${stageLabel}`,
+            stage: stageLabel,
             env: { account, region: process.env.REGION_SINGAPORE },
         });
 
         new SentinelAwsMonitorStack(this, 'Sydney', {
             stackName: `SentinelAwsMonitorStack-Sydney-${stageLabel}`,
+            stage: stageLabel,
             env: { account, region: process.env.REGION_SYDNEY },
         });
 

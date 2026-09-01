@@ -10,9 +10,9 @@ This project is being built as the NIT6150 Advanced Project at Victoria Universi
 
 ## Team
 
-- **Tenzing Tsering Lama** — Team Lead / Lead Developer
-- **Samrat Neupane** — Research and Testing
-- **Md. Malik** — Research and Testing
+- **Tenzing Tsering Lama** 
+- **Samrat Neupane** 
+- **Md. Malik** 
 
 ## Architecture
 
@@ -60,7 +60,7 @@ The same CDK stack definition is deployed to each region independently — regio
 | Multi-region deployment | ✅ Implemented |
 | CloudWatch Alarms | ✅ Implemented |
 | SNS notifications | ✅ Implemented |
-| DynamoDB incident logging | ⬜ Not yet implemented |
+| DynamoDB incident logging | ✅ Implemented |
 
 
 ## Features
@@ -102,16 +102,116 @@ Two alarms are planned for Phase 3:
 
 Alarm notifications will be connected to an SNS topic.
 
-### DynamoDB incident records _(planned)_
+### DynamoDB incident records
 
-Monitoring incidents will be stored in a regional DynamoDB table, with each record containing:
+Sentinel uses Amazon DynamoDB as the persistent incident store. When a CloudWatch alarm changes state, the event is published to the regional SNS topic. The incident-logging Lambda processes the notification and stores the event in DynamoDB.
 
-- Incident ID
-- Website name and URL
-- Metric type, measured value, and threshold
-- Timestamp and alarm state
+The system records both **ALARM** and **OK** state transitions, allowing the incident history to show both the start of an outage and its subsequent recovery.
 
-Each AWS region will have its own incident table.
+Each incident record contains information such as:
+
+- **Site ID** — identifies the monitored website
+- **Timestamp** — records when the alarm state changed
+- **Metric type** — availability or latency
+- **Alarm state** — `ALARM` or `OK`
+- **Measured value** — value associated with the monitoring event
+- **Threshold** — threshold that caused the alarm
+- **Website name and URL** — identifies the affected website
+- **Incident information** — additional details from the alarm notification
+
+The DynamoDB table uses the website's `siteId` as the partition key and the event `timestamp` as the sort key. This allows all incidents for a particular website to be queried efficiently while maintaining their chronological order.
+
+DynamoDB uses **PAY_PER_REQUEST** billing because the monitoring workload has relatively low and unpredictable write volume.
+
+The incident logging pipeline is designed to be independent of the email notification path. A single SNS alarm event can therefore be delivered to both the human notification channel and the incident logger.
+
+---
+
+## Incident Detection and Logging
+
+When a website violates a configured monitoring threshold, CloudWatch changes the corresponding alarm state to `ALARM`.
+
+The event follows this flow:
+
+1. CloudWatch detects the threshold violation.
+2. The alarm changes to the `ALARM` state.
+3. CloudWatch publishes the state change to the SNS topic.
+4. SNS delivers the event to the incident-logging Lambda.
+5. The Lambda parses the alarm notification.
+6. The incident is written to DynamoDB.
+7. When the website recovers, the alarm changes to `OK`.
+8. The recovery event is processed and stored in DynamoDB as well.
+
+This provides a persistent history of both failures and recoveries rather than relying only on temporary CloudWatch alarm states.
+
+---
+
+## Incident Logging Architecture
+
+The incident logging mechanism follows an event-driven serverless architecture. CloudWatch alarms act as the source of incident events, SNS provides the fan-out mechanism, and a dedicated Lambda function handles persistence.
+
+```text
+                    ┌─────────────────────┐
+                    │   CloudWatch Alarm   │
+                    └──────────┬──────────┘
+                               │
+                        ALARM / OK event
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │     SNS Topic       │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │ Incident Logger     │
+                    │      Lambda         │
+                    └──────────┬──────────┘
+                               │
+                         PutItem()
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │     DynamoDB        │
+                    │  Incident History   │
+                    └─────────────────────┘
+```
+
+This design keeps incident persistence decoupled from the monitoring Lambda. Website checks therefore remain focused on monitoring, while incident processing is handled independently through an event-driven workflow.
+
+---
+
+### SSL Certificate Expiry Monitoring
+
+The system monitors the SSL/TLS certificates of configured HTTPS websites.
+
+- Retrieves the SSL/TLS certificate from the monitored website.
+- Reads the certificate expiration date.
+- Calculates the number of days remaining before expiration.
+- Publishes the result as the `CertificateExpiryDays` CloudWatch metric.
+- Creates a CloudWatch alarm when the certificate has fewer than 30 days remaining.
+
+---
+
+### DNS Resolution Monitoring
+
+The system also checks whether the DNS hostname of each monitored website can be resolved.
+
+- Extracts the hostname from the monitored URL.
+- Performs a DNS lookup.
+- Records successful DNS resolution as `1`.
+- Records failed DNS resolution as `0`.
+- Publishes the result as the `DNSResolution` CloudWatch metric.
+- Creates a CloudWatch alarm when DNS resolution fails.
+
+  ---
+
+### SSL and DNS Alarm Notifications
+
+The SSL certificate expiry and DNS resolution alarms use the existing SNS notification pipeline.
+When either alarm enters the `ALARM` state, an SNS notification is published.
+Notifications are also sent when the alarm returns to the `OK` state.
+Both the DNS and SSL alarms are connected to the same SNS topic used by the existing monitoring alarms.
 
 ## Tech Stack
 
@@ -201,6 +301,13 @@ Manually tested the full alert pipeline end-to-end, simulated outage, and recove
 
 ## Sprint 4 (Upcoming)
 For the next sprint, the plan is to test the incident logging pipeline end-to-end with DynamoDB ,triggering real alarms and confirming incidents get correctly written. I'll also write unit tests for the key Lambda functions to lock in current behavior and catch errors early. Finally, I'll set up the CD pipeline — automated deployment to both regions on merge to main, including the AWS authentication setup (OIDC) needed to let GitHub Actions deploy securely.
+
+Built the project's CI/CD pipeline using CDK Pipelines (CodePipeline, CodeBuild, CodeConnections) instead of GitHub Actions, per the requirement to keep everything as code. It pulls from GitHub, runs lint/build/test/synth in CodeBuild, and deploys both regions behind a manual approval gate, with sensitive config stored in SSM Parameter Store rather than hardcoded in the template.
+
+Blockers resolved: attached required node version in the buildspec, .env variable names were aligned with the code, the auto trigger issue turned out to be becuase of the actual GitHub app enabling push notifications had never been installed on the repo, spearate from the AWS-side authorization; installing it resolved the issue and the pipeline now triggers on push to the branch"
+
+## Sprint 4 (Blockers)
+nodejs version mismatch in CodeBuild's default image that crashed linting, naming mismatch in my .env file that caused the singapore deployment to silently land in the wrong region and create a duplicate pipeline, Pipeline nto auto triggering on push 
 
 ## License
 
