@@ -14,6 +14,7 @@ import * as cwActions from "aws-cdk-lib/aws-cloudwatch-actions";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
+import * as ssm from "aws-cdk-lib/aws-ssm";
 import type { MonitoredSite } from "../lambda/site-config";
 import { validateMonitoredSites } from "../validation/validateMonitoredSites";
 
@@ -24,6 +25,12 @@ const SITE_CONFIG_KEY = "sites.json";
 // CloudWatch namespace the crawler publishes Availability/Latency under —
 // shared between the IAM condition below and the crawler's env var.
 const METRIC_NAMESPACE = "WebsiteMonitoring";
+
+// SSM SecureString parameter holding the Slack Incoming Webhook URL for
+// real-time alarm notifications. Created once by hand, per region
+// (`aws ssm put-parameter --type SecureString`) — CDK only references it,
+// never creates or destroys it. See docs/notifications-design.md.
+const SLACK_ALERTS_WEBHOOK_PARAM = "/sentinel/slack/alerts-webhook-url";
 
 export class SentinelAwsMonitorStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -130,6 +137,42 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
 
     incidentTable.grantWriteData(incidentLoggerFunction);
 
+    /**
+     * Second fan-out Lambda on the same alarm topic: posts a short
+     * human-readable line to Slack for every alarm/OK transition. Independent
+     * of the email subscription and the incident logger — purely additive,
+     * touches neither.
+     */
+    const slackNotifierFunction = new NodejsFunction(this, 'SlackNotifierFunction', {
+      entry: path.join(__dirname, '..', 'lambda', 'slack-notifier.ts'),
+      handler: 'handler',
+      runtime: Runtime.NODEJS_24_X,
+      timeout: cdk.Duration.seconds(10),
+      memorySize: 128,
+      logGroup: this.createLogGroup('SlackNotifierLogGroup'),
+      environment: {
+        SLACK_WEBHOOK_PARAM_NAME: SLACK_ALERTS_WEBHOOK_PARAM,
+      },
+      bundling: {
+        bundleAwsSDK: true,
+      },
+    });
+
+    /**
+     * The webhook URL is a bearer secret, stored as a SecureString created
+     * manually (once per region). Reference it — never create it — so
+     * `cdk destroy` can't delete it and the value survives every redeploy.
+     * `grantRead` scopes the Lambda to `ssm:GetParameter*` on just this
+     * parameter's ARN; decryption goes through the AWS-managed `aws/ssm`
+     * key, which needs no extra KMS grant for same-account SSM calls.
+     */
+    const slackWebhookParam = ssm.StringParameter.fromSecureStringParameterAttributes(
+      this,
+      'SlackAlertsWebhookParam',
+      { parameterName: SLACK_ALERTS_WEBHOOK_PARAM },
+    );
+    slackWebhookParam.grantRead(slackNotifierFunction);
+
     // ---------------------------------------------------------------------
     // Alerting — shared SNS topic for every alarm across every site
     // ---------------------------------------------------------------------
@@ -157,6 +200,11 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
     // Second subscriber on the same topic — every alarm/OK event reaches
     // both the human (email, above) and the incident logger, independently.
     alertTopic.addSubscription(new subscriptions.LambdaSubscription(incidentLoggerFunction));
+
+    // Third subscriber — same event again, this time posted to Slack.
+    // Independent of the two above: a Slack outage can't affect email or
+    // incident logging, and vice versa.
+    alertTopic.addSubscription(new subscriptions.LambdaSubscription(slackNotifierFunction));
 
     // ---------------------------------------------------------------------
     // Dashboard + per-site metrics, widgets, and alarms
@@ -260,10 +308,11 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
           threshold: 3000,
           evaluationPeriods: 2,
           datapointsToAlarm: 2,
-          // A down site has no latency data point at all that's already
-          // covered by the availability alarm above, so missing data here
-          // shouldn't also fire a second, redundant alarm for the same outage.
-          treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+          // Missing data → INSUFFICIENT_DATA (not OK). A latency gap means the
+          // crawler stopped producing data for this site; surface it as its
+          // own "no data" signal rather than a misleading green. The
+          // availability alarm still owns "the site is down".
+          treatMissingData: cloudwatch.TreatMissingData.MISSING,
         },
       );
 
@@ -277,9 +326,10 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
           threshold: 14, // days — enough lead time to renew before it bites
           evaluationPeriods: 1, // the value is stable, no need to wait for confirmation
           datapointsToAlarm: 1,
-          // No cert reading means the TLS handshake failed outright — the
-          // availability alarm already covers that, so don't double-fire here.
-          treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+          // Missing data → INSUFFICIENT_DATA (not OK). No cert reading usually
+          // means the TLS handshake failed — worth its own "no data" signal in
+          // Slack. The availability alarm still owns "the site is down".
+          treatMissingData: cloudwatch.TreatMissingData.MISSING,
         },
       );
 
@@ -290,6 +340,15 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         alarm.addOkAction(new cwActions.SnsAction(alertTopic));
       }
 
+      // Latency and cert use treatMissingData: MISSING, so a data gap lands
+      // them in INSUFFICIENT_DATA. Notify on that too — the Slack notifier
+      // turns it into a "⚠️ NO DATA" line; the incident logger ignores it.
+      // Availability is BREACHING (no data = assume down), so it never sits
+      // in INSUFFICIENT_DATA and isn't wired here.
+      for (const alarm of [latencyAlarm, certExpiryAlarm]) {
+        alarm.addInsufficientDataAction(new cwActions.SnsAction(alertTopic));
+      }
+
       // Tagged by metric type (FR8), lets alarms be filtered/searched in
       // the console without parsing alarm names.
       cdk.Tags.of(availabilityAlarm).add("MetricType", "Availability");
@@ -297,11 +356,16 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       cdk.Tags.of(certExpiryAlarm).add("MetricType", "CertificateExpiry");
     }
 
+    const dashboardUrl = `https://${this.region}.console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${dashboard.dashboardName}`;
+
+    // The Slack notifier links to this from every message. Set here (not in
+    // the function's `environment` block above) because the dashboard is
+    // defined further down the file than the Lambda.
+    slackNotifierFunction.addEnvironment("DASHBOARD_URL", dashboardUrl);
+
     // Printed after `cdk deploy` so the dashboard is one click away instead
     // of having to hunt for it by name in the console.
-    new cdk.CfnOutput(this, "DashboardUrl", {
-      value: `https://${this.region}.console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${dashboard.dashboardName}`,
-    });
+    new cdk.CfnOutput(this, "DashboardUrl", { value: dashboardUrl });
   }
 
   /**

@@ -1,32 +1,11 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { DynamoDBDocumentClient, PutCommand } from '@aws-sdk/lib-dynamodb'
 import type { SNSEvent, SNSHandler } from 'aws-lambda'
+import { parseAlarmMessage, type AlarmState } from './alarm-message'
 
 const dbClient = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 
 const TABLE_NAME = process.env.INCIDENT_TABLE_NAME;
-
-// The dimension the crawler tags every metric with, and therefore the one
-// the alarm carries into its notification. Must match `dimensionsMap` in
-// the stack (`{ SiteId: site.siteId }`).
-const SITE_DIMENSION = 'SiteId';
-
-/**
- * The JSON string inside an SNS record's `Message` for a CloudWatch alarm
- * action. Top-level keys and `Trigger.*` are PascalCase; the objects *inside*
- * `Trigger.Dimensions` use lowercase `name` / `value` — that inconsistency
- * is AWS's, not a typo.
- */
-interface CloudWatchAlarmMessage {
-    AlarmName: string;
-    NewStateValue: 'ALARM' | 'OK' | 'INSUFFICIENT_DATA';
-    NewStateReason: string;
-    StateChangeTime: string;
-    Trigger: {
-        MetricName: string;
-        Dimensions: Array<{ name: string; value: string }>;
-    }
-}
 
 export interface IncidentRecord {
     siteId: string;
@@ -34,27 +13,28 @@ export interface IncidentRecord {
     timestamp: string;
     alarmName: string;
     metricName: string;
-    state: CloudWatchAlarmMessage['NewStateValue'];
+    state: AlarmState;
     reason: string;
 }
 
-export function parseIncident(rawMessage: string): IncidentRecord {
-    const message = JSON.parse(rawMessage) as CloudWatchAlarmMessage;
-
-    const siteId = message.Trigger.Dimensions.find((d) => d.name === SITE_DIMENSION)?.value;
-
-    if (!siteId) {
-        throw new Error(`Alarm message for "${message.AlarmName}" has no ${SITE_DIMENSION} dimension`);
-    }
+/**
+ * Maps one parsed alarm message to the incident-table row shape.
+ *
+ * The `incidentId` sort key is `"<stateChangeTime>#<alarmName>"` — the
+ * timestamp leads so rows sort chronologically, and the `#<alarmName>`
+ * suffix keeps two alarms that flip in the same instant from sharing a key.
+ */
+export function toIncidentRecord(rawMessage: string): IncidentRecord {
+    const alarm = parseAlarmMessage(rawMessage);
 
     return {
-        siteId,
-        incidentId: `${message.StateChangeTime}#${message.AlarmName}`,
-        timestamp: message.StateChangeTime,
-        alarmName: message.AlarmName,
-        metricName: message.Trigger.MetricName,
-        state: message.NewStateValue,
-        reason: message.NewStateReason
+        siteId: alarm.siteId,
+        incidentId: `${alarm.timestamp}#${alarm.alarmName}`,
+        timestamp: alarm.timestamp,
+        alarmName: alarm.alarmName,
+        metricName: alarm.metricName,
+        state: alarm.state,
+        reason: alarm.reason,
     }
 }
 
@@ -80,7 +60,17 @@ async function writeIncident(record: IncidentRecord): Promise<void> {
  */
 export const handler: SNSHandler = async (event: SNSEvent) => {
     for (const record of event.Records) {
-        const incident = parseIncident(record.Sns.Message);
+        const incident = toIncidentRecord(record.Sns.Message);
+
+        // The table records outages and recoveries. The latency/cert alarms
+        // also publish INSUFFICIENT_DATA to this topic now (for the Slack
+        // "no data" notification) — that's an operational signal, not an
+        // incident, so it doesn't belong in the table.
+        if (incident.state !== 'ALARM' && incident.state !== 'OK') {
+            console.log('Skipped non-incident state', JSON.stringify(incident));
+            continue;
+        }
+
         await writeIncident(incident);
         console.log('Logged incident', JSON.stringify(incident));
     }
