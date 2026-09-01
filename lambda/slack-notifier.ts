@@ -26,6 +26,10 @@ const WEBHOOK_PARAM_NAME = process.env.SLACK_WEBHOOK_PARAM_NAME
 // message just omits the "Dashboard" link.
 const DASHBOARD_URL = process.env.DASHBOARD_URL
 
+// Set by CDK to the pipeline stage ("Beta" | "Gamma" | "Prod"). Empty for
+// local deploys — the message then carries no stage prefix.
+const STAGE = process.env.STAGE
+
 // Cached across warm invocations so we hit SSM once per cold start, not once
 // per notification.
 let cachedWebhookUrl: string | undefined
@@ -92,7 +96,7 @@ function tidyReason(reason: string): string {
 /**
  * Title line + labelled detail block + links, e.g.:
  *
- *   🔴 *ALARM:*  Availability · site-04  ·  Asia Pacific (Sydney)
+ *   🔴 *[Prod] ALARM:*  Availability · site-04  ·  Asia Pacific (Sydney)
  *
  *   *Description:*  Example Org has been down for 2 consecutive checks (10 min)
  *   *Reason:*  no datapoints were received for 3 periods ...
@@ -106,9 +110,10 @@ function tidyReason(reason: string): string {
  * INSUFFICIENT_DATA that sentence describes a threshold breach that didn't
  * happen, so we state what actually did: the metric stopped reporting.
  */
-export function formatMessage(alarm: ParsedAlarm, dashboardUrl?: string): string {
+export function formatMessage(alarm: ParsedAlarm, dashboardUrl?: string, stage = STAGE): string {
     const emoji = STATE_EMOJI[alarm.state] ?? '❓'
     const label = STATE_LABEL[alarm.state] ?? alarm.state
+    const stagePrefix = stage ? `[${stage}] ` : ''
 
     const description =
         alarm.state === 'INSUFFICIENT_DATA'
@@ -121,7 +126,7 @@ export function formatMessage(alarm: ParsedAlarm, dashboardUrl?: string): string
     }
 
     return [
-        `${emoji} *${label}:*  ${alarm.metricName} · ${alarm.siteId}  ·  ${alarm.region}`,
+        `${emoji} *${stagePrefix}${label}:*  ${alarm.metricName} · ${alarm.siteId}  ·  ${alarm.region}`,
         '',
         `*Description:*  ${description}`,
         `*Reason:*  ${tidyReason(alarm.reason)}`,

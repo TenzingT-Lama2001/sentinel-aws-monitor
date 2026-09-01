@@ -22,8 +22,11 @@ import { validateMonitoredSites } from "../validation/validateMonitoredSites";
 // Lambda's env var always agree on the same file (see docs/METRICS.md).
 const SITE_CONFIG_KEY = "sites.json";
 
-// CloudWatch namespace the crawler publishes Availability/Latency under —
-// shared between the IAM condition below and the crawler's env var.
+// Base CloudWatch namespace. Per stage it becomes "WebsiteMonitoring/<stage>"
+// (see `metricNamespace` in the constructor) so Beta/Gamma/Prod, which deploy
+// to the same account+region, don't write into and read from one shared
+// series. Shared between the IAM condition, the crawler's env var, and the
+// alarm/dashboard Metric definitions.
 const METRIC_NAMESPACE = "WebsiteMonitoring";
 
 // SSM SecureString parameter holding the Slack Incoming Webhook URL for
@@ -32,9 +35,27 @@ const METRIC_NAMESPACE = "WebsiteMonitoring";
 // never creates or destroys it. See docs/notifications-design.md.
 const SLACK_ALERTS_WEBHOOK_PARAM = "/sentinel/slack/alerts-webhook-url";
 
+export interface SentinelAwsMonitorStackProps extends cdk.StackProps {
+  /**
+   * Pipeline stage this copy belongs to ("Beta" | "Gamma" | "Prod"), shown
+   * as a prefix on every Slack alert so alarms from the three environments
+   * are distinguishable in one channel. Omitted for local deploys.
+   */
+  stage?: string;
+}
+
 export class SentinelAwsMonitorStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props?: SentinelAwsMonitorStackProps) {
     super(scope, id, props);
+
+    // Stage-scoped metric namespace. Beta/Gamma/Prod deploy to the same
+    // account+region, so a bare "WebsiteMonitoring" would leave all three
+    // stages' crawlers writing to — and all three stages' alarms reading
+    // from — one shared series. A "/<stage>" suffix keeps them isolated.
+    // Local deploys (no stage) keep the bare namespace.
+    const metricNamespace = props?.stage
+      ? `${METRIC_NAMESPACE}/${props.stage}`
+      : METRIC_NAMESPACE;
 
     // ---------------------------------------------------------------------
     // Site configuration storage
@@ -46,11 +67,12 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
      * redeploy. Destroyed with the stack, safe here since it only ever
      * holds this one small config file.
      */
-    const siteConfigBucket = new s3.Bucket(this, "SiteConfigBucket", {
-      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL, // never allow public access
-      enforceSSL: true, // reject non-HTTPS requests
-      removalPolicy: cdk.RemovalPolicy.DESTROY, // delete bucket on cdk destroy
-      autoDeleteObjects: true, // empty it first, so destroy doesn't fail
+    const siteConfigBucket = new s3.Bucket(this, 'SiteConfigBucket', {
+      bucketName: `sentinel-site-config-${this.stackName.toLowerCase()}`,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      enforceSSL: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
     });
 
     // ---------------------------------------------------------------------
@@ -68,6 +90,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       environment: {
         SITE_CONFIG_BUCKET: siteConfigBucket.bucketName, // which bucket to read
         SITE_CONFIG_KEY, // which file in it
+        METRIC_NAMESPACE: metricNamespace, // stage-scoped, must match the alarms below
       },
       bundling: {
         bundleAwsSDK: true, // pin our tested SDK version instead of the runtime's default
@@ -84,7 +107,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         actions: ["cloudwatch:PutMetricData"],
         resources: ["*"],
         conditions: {
-          StringEquals: { "cloudwatch:namespace": METRIC_NAMESPACE },
+          StringEquals: { "cloudwatch:namespace": metricNamespace },
         },
       }),
     );
@@ -109,7 +132,9 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
      * the ALARM and the matching OK (recovery) row coexist under the site.
      */
     const incidentTable = new dynamodb.Table(this, 'IncidentTable', {
-      tableName: `WebsiteMonitoringIncidents-${this.region}`,
+      // Keyed by stack name, not just region — Beta/Gamma/Prod stages deploy
+      // to the same account+region, and table names must be unique there.
+      tableName: `WebsiteMonitoringIncidents-${this.stackName}`,
       partitionKey: { name: 'siteId', type: dynamodb.AttributeType.STRING },     // groups rows by site
       sortKey: { name: 'incidentId', type: dynamodb.AttributeType.STRING },      // "<stateChangeTime>#<alarmName>" — orders by time, unique per alarm
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // write volume never justifies provisioned capacity
@@ -152,6 +177,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       logGroup: this.createLogGroup('SlackNotifierLogGroup'),
       environment: {
         SLACK_WEBHOOK_PARAM_NAME: SLACK_ALERTS_WEBHOOK_PARAM,
+        STAGE: props?.stage ?? "",
       },
       bundling: {
         bundleAwsSDK: true,
@@ -184,7 +210,9 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
      * number of things to subscribe to for no real benefit at this scale.
      */
     const alertTopic = new sns.Topic(this, "AlertTopic", {
-      topicName: `WebsiteMonitoringAlerts-${this.region}`,
+      // Keyed by stack name, not just region — multiple stages (Beta/Gamma/Prod)
+      // deploy to the same account+region, and topic names must be unique there.
+      topicName: `WebsiteMonitoringAlerts-${this.stackName}`,
     });
 
     // SNS emails a confirmation link to this address on first deploy; it
@@ -225,15 +253,16 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
     );
 
     const dashboard = new cloudwatch.Dashboard(this, "MonitoringDashboard", {
-      // Region-suffixed because dashboard names must be unique per account
-      dashboardName: `WebsiteMonitoring-${this.region}`,
+      // Keyed by stack name, not just region — multiple stages (Beta/Gamma/Prod)
+      // deploy to the same account+region, and dashboard names must be unique there.
+      dashboardName: `WebsiteMonitoring-${this.stackName}`,
     });
 
     for (const site of monitoredSites) {
       const dimensionsMap = { SiteId: site.siteId };
 
       const availability = new cloudwatch.Metric({
-        namespace: METRIC_NAMESPACE,
+        namespace: metricNamespace,
         metricName: "Availability",
         dimensionsMap,
         statistic: "Average", // % of checks that succeeded in each period
@@ -241,7 +270,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       });
 
       const latency = new cloudwatch.Metric({
-        namespace: METRIC_NAMESPACE,
+        namespace: metricNamespace,
         metricName: "Latency",
         dimensionsMap,
         statistic: "Average",
@@ -249,7 +278,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       });
 
       const certExpiry = new cloudwatch.Metric({
-        namespace: METRIC_NAMESPACE,
+        namespace: metricNamespace,
         metricName: "CertificateExpiryDays",
         dimensionsMap,
         statistic: "Minimum", // the closest-to-expiry reading in the period

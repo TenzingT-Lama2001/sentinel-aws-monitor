@@ -1,0 +1,125 @@
+
+
+
+cdk deploy PipelineStack --app "npx tsx bin/sentinel-aws-monitor.ts"
+
+
+git commit --allow-empty -m "chore: trigger pipeline after full cleanup and fresh redeploy"
+git push
+
+
+//reomve the support bucket's object
+aws s3 ls s3://pipelinestack-support-ap-eplicationbucket7296483591855cb8a9cd --recursive
+aws s3 rm s3://pipelinestack-support-ap-eplicationbucket7296483591855cb8a9cd --recursive
+
+
+//delete the stack
+aws cloudformation delete-stack --stack-name PipelineStack-support-ap-southeast-2 --region ap-southeast-2
+aws cloudformation wait stack-delete-complete --stack-name PipelineStack-support-ap-southeast-2 --region ap-southeast-2
+
+
+
+//remove the stacks in 2 regions
+//remove the supporting stack created in the secondary region
+ ---but ffirst make sure to empty the bucket
+//delete the pipeline stack
+
+
+aws cloudformation list-stacks --region ap-southeast-2 --query "StackSummaries[?StackStatus!='DELETE_COMPLETE'].StackName" --output table
+aws cloudformation list-stacks --region ap-southeast-1 --query "StackSummaries[?StackStatus!='DELETE_COMPLETE'].StackName" --output table
+
+
+============================================================
+SENTINEL AWS MONITOR — FULL CLEANUP COMMAND REFERENCE
+============================================================
+
+------------------------------------------------------------
+STEP 1: Delete app stacks in both regions (Beta / Gamma / Prod)
+------------------------------------------------------------
+
+REM --- Singapore (ap-southeast-1) ---
+aws cloudformation delete-stack --stack-name SentinelAwsMonitorStack-Singapore-Beta --region ap-southeast-1
+aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorStack-Singapore-Beta --region ap-southeast-1
+aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Singapore-Beta --region ap-southeast-1
+
+aws cloudformation delete-stack --stack-name SentinelAwsMonitorStack-Singapore-Gamma --region ap-southeast-1
+aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorStack-Singapore-Gamma --region ap-southeast-1
+aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Singapore-Gamma --region ap-southeast-1
+
+aws cloudformation delete-stack --stack-name SentinelAwsMonitorStack-Singapore-Prod --region ap-southeast-1
+aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorStack-Singapore-Prod --region ap-southeast-1
+aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Singapore-Prod --region ap-southeast-1
+
+REM --- Sydney (ap-southeast-2) ---
+aws cloudformation delete-stack --stack-name SentinelAwsMonitorStack-Sydney-Beta --region ap-southeast-2
+aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorStack-Sydney-Beta --region ap-southeast-2
+aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Sydney-Beta --region ap-southeast-2
+
+aws cloudformation delete-stack --stack-name SentinelAwsMonitorStack-Sydney-Gamma --region ap-southeast-2
+aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorStack-Sydney-Gamma --region ap-southeast-2
+aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Sydney-Gamma --region ap-southeast-2
+
+aws cloudformation delete-stack --stack-name SentinelAwsMonitorStack-Sydney-Prod --region ap-southeast-2
+aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorStack-Sydney-Prod --region ap-southeast-2
+aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Sydney-Prod --region ap-southeast-2
+
+
+
+
+------------------------------------------------------------
+STEP 2: Delete the pipeline's support stack (Sydney)
+         Must empty its bucket FIRST — deleting the stack
+         also destroys its KMS key, which would make any
+         remaining objects permanently unreadable.
+------------------------------------------------------------
+
+REM Find the bucket
+aws cloudformation describe-stack-resources --stack-name PipelineStack-support-ap-southeast-2 --region ap-southeast-2 --query "StackResources[?ResourceType=='AWS::S3::Bucket'].PhysicalResourceId"
+
+REM Check what's in it
+aws s3 ls s3://<bucket-name-from-above> --
+
+REM Empty it (only if it has objects)
+aws s3 rm s3://<bucket-name-from-above> --recursive
+
+REM Now delete the stack itself
+aws cloudformation delete-stack --stack-name PipelineStack-support-ap-southeast-2 --region ap-southeast-2
+aws cloudformation wait stack-delete-complete --stack-name PipelineStack-support-ap-southeast-2 --region ap-southeast-2
+aws cloudformation describe-stacks --stack-name PipelineStack-support-ap-southeast-2 --region ap-southeast-2
+
+REM Confirm the bucket itself — it may still exist (RETAIN by default), that's expected.
+REM If it does and it's confirmed empty, it's safe to remove directly:
+aws s3 ls | findstr pipelinestack-support
+aws s3 rb s3://<bucket-name-from-above>
+
+
+------------------------------------------------------------
+STEP 3: Delete the pipeline stack itself (Singapore)
+------------------------------------------------------------
+
+aws cloudformation delete-stack --stack-name PipelineStack --region ap-southeast-1
+aws cloudformation wait stack-delete-complete --stack-name PipelineStack --region ap-southeast-1
+aws cloudformation describe-stacks --stack-name PipelineStack --region ap-southeast-1
+
+
+------------------------------------------------------------
+STEP 4: Final verification — both regions
+------------------------------------------------------------
+
+aws cloudformation list-stacks --region ap-southeast-2 --query "StackSummaries[?StackStatus!='DELETE_COMPLETE'].StackName" --output table
+aws cloudformation list-stacks --region ap-southeast-1 --query "StackSummaries[?StackStatus!='DELETE_COMPLETE'].StackName" --output table
+
+Expected result: only CDKToolkit remains in each region (plus any
+unrelated pre-existing stacks you've deliberately chosen not to touch).
+
+
+
+
+The two buckets, and why each is still there for a different reason
+
+pipelinestack-support-ap-...eplicationbucket... (Sydney) — this is the support stack's replication bucket we just worked through. You correctly emptied it, then deleted the stack. It surviving is expected and correct — this bucket has no explicit RemovalPolicy set (remember, it silently falls through to the construct's default, which is RETAIN). Deleting the stack was never going to delete this bucket — RETAIN means "don't delete me even if my stack goes away." You did everything right; this is the bucket doing exactly what its (default) policy says.
+
+pipelinestack-pipelineartifactsbucket... (Singapore) — this is a different bucket entirely — the pipeline's main artifact bucket (not the cross-region replication one), created by PipelineStack itself. If you've deleted PipelineStack, and this bucket is still showing up, that's the same RETAIN pattern applying here too — CDK Pipelines' main artifact bucket construct also doesn't set an explicit removal policy, so it also defaults to RETAIN.recursive
+
+
+cdk destroy PipelineStack --all --app "npx tsx bin/sentinel-aws-monitor.ts"
