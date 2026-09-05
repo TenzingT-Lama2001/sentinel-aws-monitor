@@ -92,24 +92,60 @@ export class PipelineStack extends cdk.Stack {
             }),
         });
 
-        // Beta: no gate, fast first check. Post-deploy smoke test runs against
-        // the real deployed Beta resources, so a broken deploy never reaches Gamma.
-        pipeline.addStage(new AppStage(this, 'Beta', { stageLabel: 'Beta' }), {
-            post: [new pipelines.CodeBuildStep('BetaSmokeTest', {
-                input: source,
-                commands: ['npm ci', 'npx tsx scripts/smoke-test-beta.ts'],
-                partialBuildSpec: NODE_20_BUILD_SPEC,
-            })],
-        });
+        // Beta deployment is followed by a real smoke test.
+        // If the smoke test exits with a non-zero status, CodePipeline
+        // stops here and Gamma is not deployed.
+        pipeline.addStage(
+            new AppStage(this, 'Beta', { stageLabel: 'Beta' }),
+            {
+                post: [new pipelines.CodeBuildStep('BetaSmokeTest', {
+                    input: source,
+                    commands: [
+                        'npm ci',
+                        'npm run build',
+                        'npx tsx scripts/smoke-test-beta.ts',
+                    ],
+                    partialBuildSpec: NODE_20_BUILD_SPEC,
+                    rolePolicyStatements: [
+                        new iam.PolicyStatement({
+                            actions: ['cloudformation:DescribeStackResources'],
+                            resources: [`arn:aws:cloudformation:*:${this.account}:stack/SentinelAwsMonitorStack-Sydney-Beta/*`],
+                        }),
+                        // Broader Lambda invoke permission initially to avoid ARN mismatch issues.
+                        new iam.PolicyStatement({
+                            actions: ['lambda:InvokeFunction'],
+                            resources: ['*'],
+                        }),
+                    ],
+                })],
+            },
+        );
 
-        // // Gamma: deeper, end-to-end verification against the real Gamma environment.
-        pipeline.addStage(new AppStage(this, 'Gamma', { stageLabel: 'Gamma' }), {
-            post: [new pipelines.CodeBuildStep('GammaVerification', {
-                input: source,
-                commands: ['npm ci', 'npx tsx scripts/verify-gamma.ts'],
-                partialBuildSpec: NODE_20_BUILD_SPEC,
-            })],
-        });
+        // Gamma: deeper, end-to-end verification against the real Gamma environment.
+        pipeline.addStage(
+            new AppStage(this, 'Gamma', { stageLabel: 'Gamma' }),
+            {
+                post: [new pipelines.CodeBuildStep('GammaVerification', {
+                    input: source,
+                    commands: [
+                        'npm ci',
+                        'npm run build',
+                        'npx tsx scripts/verify-gamma.ts',
+                    ],
+                    partialBuildSpec: NODE_20_BUILD_SPEC,
+                    rolePolicyStatements: [
+                        new iam.PolicyStatement({
+                            actions: ['cloudformation:DescribeStackResources'],
+                            resources: [`arn:aws:cloudformation:*:${this.account}:stack/SentinelAwsMonitorStack-Sydney-Gamma/*`],
+                        }),
+                        new iam.PolicyStatement({
+                            actions: ['lambda:InvokeFunction'],
+                            resources: ['*'],
+                        }),
+                    ],
+                })],
+            },
+        );
 
 
         // Deploys both regions, gated behind manual approval.
