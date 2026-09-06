@@ -357,7 +357,7 @@ prepare the final presentation and finalize the report
 # Samrat
 
 ## Sprint 1
-Worked on Project proposal. Reviewed the project requirements and explored about aws services like cloudwatch and sns.
+Worked on Project proposal. Reviewed the project requirements and explored about aws services like cloudwatch and sns. Created a new aws account.
 ## Sprint 2
 Worked on finalysing the system analysis and design report. Updated few details about the project description on the readme file with architecture figures. Setup the project locally in my machine.
 ## Sprint 3
@@ -367,7 +367,7 @@ Completed the incident logging using AWS lambda and Dynamo DB. Implemented the i
 ## Sprint 5
 Implemented SSL Certificate expiry and DNS resolution monitoring in the sentinel aws monitor. The features publish CloudWatch metrics, trigger alarms, send SNS notifications and log incidents in DynamoDB for centralized monitoring and alerting.
 ## Sprint 6
-Implemented automated CI/CD testing using AWS CDK Pipelines and CodeBuild. Added Jest infrastructure tests to validate the deployment resources, including Lambda, S3, DynamoDB, SNS and CloudWatch components. Implemented post-deployment Beta smoke testing and Gamma verification against the deployed AWS environments. Configured the tests as pipeline blockers so failed validation prevents progression to subsequent deployment stages. Tested both successful and intentionally failed pipeline executions to verify the CI/CD gating behaviour.
+Implemented automated CI/CD testing using AWS CDK Pipelines and CodeBuild. Added Jest infrastructure tests to validate the deployment resources, including Lambda, S3, DynamoDB, SNS and CloudWatch components. Implemented post-deployment Beta smoke testing and Gamma verification against the deployed AWS environments. Configured the tests as pipeline blockers so failed validation prevents progression to subsequent deployment stages. Tested both successful and intentionally failed pipeline executions to verify the CI/CD gating behaviour. Worked on the presentation file along with final report.
 ## License
 
 This project is submitted as coursework for NIT6150 Advanced Project, Victoria University.
