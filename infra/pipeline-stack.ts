@@ -25,6 +25,38 @@ const NODE_20_BUILD_SPEC = codebuild.BuildSpec.fromObject({
     },
 });
 
+function staleStackCleanupStep(stageLabel: string, source: pipelines.CodePipelineSource): pipelines.CodeBuildStep {
+    const stackNames = [
+        `SentinelAwsMonitorStack-Singapore-${stageLabel}`,
+        `SentinelAwsMonitorStack-Sydney-${stageLabel}`,
+    ];
+
+    return new pipelines.CodeBuildStep(`CleanStale${stageLabel}Stacks`, {
+        input: source,
+        commands: [
+            ...stackNames.flatMap(stackName => [
+                `status=$(aws cloudformation describe-stacks --stack-name "${stackName}" --region "$AWS_DEFAULT_REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)`,
+                'case "$status" in',
+                '  ROLLBACK_COMPLETE|ROLLBACK_FAILED|ROLLBACK_IN_PROGRESS|DELETE_FAILED|CREATE_FAILED|UPDATE_ROLLBACK_COMPLETE|UPDATE_ROLLBACK_FAILED|UPDATE_ROLLBACK_IN_PROGRESS) ',
+                `    echo "Deleting stale stack ${stackName} in state $status"`,
+                `    aws cloudformation delete-stack --stack-name "${stackName}" --region "$AWS_DEFAULT_REGION"`,
+                `    aws cloudformation wait stack-delete-complete --stack-name "${stackName}" --region "$AWS_DEFAULT_REGION" || true`,
+                '    ;;',
+                '  *)',
+                `    echo "Stack ${stackName} is healthy: $status"`,
+                '    ;;',
+                'esac',
+            ]),
+        ],
+        rolePolicyStatements: [
+            new iam.PolicyStatement({
+                actions: ['cloudformation:DescribeStacks', 'cloudformation:DeleteStack'],
+                resources: ['*'],
+            }),
+        ],
+    });
+}
+
 // CDK Pipelines instead of GitHub Actions, per the everything-as-code goal:
 // CI runs lint/build/test/synth every push; CD deploys both regions after
 // manual approval.
@@ -98,6 +130,7 @@ export class PipelineStack extends cdk.Stack {
         pipeline.addStage(
             new AppStage(this, 'Beta', { stageLabel: 'Beta' }),
             {
+                pre: [staleStackCleanupStep('Beta', source)],
                 post: [new pipelines.CodeBuildStep('BetaSmokeTest', {
                     input: source,
                     commands: [
@@ -125,6 +158,7 @@ export class PipelineStack extends cdk.Stack {
         pipeline.addStage(
             new AppStage(this, 'Gamma', { stageLabel: 'Gamma' }),
             {
+                pre: [staleStackCleanupStep('Gamma', source)],
                 post: [new pipelines.CodeBuildStep('GammaVerification', {
                     input: source,
                     commands: [
@@ -150,7 +184,10 @@ export class PipelineStack extends cdk.Stack {
 
         // Deploys both regions, gated behind manual approval.
         pipeline.addStage(new AppStage(this, 'Production', { stageLabel: 'Prod' }), {
-            pre: [new pipelines.ManualApprovalStep('PromoteToProduction')],
+            pre: [
+                staleStackCleanupStep('Prod', source),
+                new pipelines.ManualApprovalStep('PromoteToProduction'),
+            ],
         });
         // Prints the ARN to authorize once in the console.
         new cdk.CfnOutput(this, 'GitHubConnectionArn', {
