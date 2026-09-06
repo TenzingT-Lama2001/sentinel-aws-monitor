@@ -25,9 +25,31 @@ const NODE_20_BUILD_SPEC = codebuild.BuildSpec.fromObject({
     },
 });
 
-// CDK Pipelines instead of GitHub Actions, per the everything-as-code goal:
-// CI runs lint/build/test/synth every push; CD deploys both regions after
-// manual approval.
+// Bake step just needs the window length. BAKE_MINUTES lives here so it's a
+// one-line change (set to 0 for a demo).
+const BAKE_BUILD_SPEC = codebuild.BuildSpec.fromObject({
+    phases: {
+        install: {
+            'runtime-versions': { nodejs: 20 },
+        },
+    },
+    env: {
+        variables: {
+            BAKE_MINUTES: '30',
+        },
+    },
+});
+
+// CDK Pipelines instead of GitHub Actions, per the everything-as-code goal.
+// Test strategy follows the AWS deployment-pipeline model — each stage runs a
+// different kind of test, cheapest first, against a progressively more
+// realistic environment:
+//   Synth  - lint + build + cdk synth only (no tests; is it even valid code?)
+//   Alpha  - unit tests, no deploy          (test/unit,       npm run test:unit)
+//   Beta   - functional tests vs deployed Beta   (test/functional, test:functional)
+//   Gamma  - end-to-end tests, THEN a bake time (hold the window so the stack's
+//            alarms can fire on a bad build) before the prod gate
+//   Prod   - manual approval, then deploy both regions
 export class PipelineStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
         super(scope, id, props);
@@ -49,12 +71,13 @@ export class PipelineStack extends cdk.Stack {
             synth: new pipelines.CodeBuildStep('Synth', {
                 // Equivalent of actions/checkout.
                 input: source,
-                // Same steps as the old ci.yml, as a plain array.
+                // Build + synth only. Tests moved to the Alpha stage (below):
+                // CI's job is "is this valid, deployable code?", not "is the
+                // logic correct?".
                 commands: [
                     'npm ci',
                     'npm run lint',
                     'npm run build',
-                    'npm test',
                     'npx cdk synth',
                 ],
                 partialBuildSpec: codebuild.BuildSpec.fromObject({
@@ -92,23 +115,51 @@ export class PipelineStack extends cdk.Stack {
             }),
         });
 
-        // Beta: no gate, fast first check. Post-deploy smoke test runs against
-        // the real deployed Beta resources, so a broken deploy never reaches Gamma.
-        pipeline.addStage(new AppStage(this, 'Beta', { stageLabel: 'Beta' }), {
-            post: [new pipelines.CodeBuildStep('BetaSmokeTest', {
+        // Alpha: unit tests only, nothing deployed. A wave with a post step and
+        // no stages — this is the "does the logic work in isolation?" gate, run
+        // before any real environment is touched.
+        pipeline.addWave('Alpha', {
+            post: [new pipelines.CodeBuildStep('AlphaUnitTests', {
                 input: source,
-                commands: ['npm ci', 'npx tsx scripts/smoke-test-beta.ts'],
+                commands: ['npm ci', 'npm run test:unit'],
                 partialBuildSpec: NODE_20_BUILD_SPEC,
             })],
         });
 
-        // // Gamma: deeper, end-to-end verification against the real Gamma environment.
-        pipeline.addStage(new AppStage(this, 'Gamma', { stageLabel: 'Gamma' }), {
-            post: [new pipelines.CodeBuildStep('GammaVerification', {
+        // Beta: no gate, fast first check. Post-deploy functional tests run
+        // against the real deployed Beta resources, so a broken deploy never
+        // reaches Gamma.
+        pipeline.addStage(new AppStage(this, 'Beta', { stageLabel: 'Beta' }), {
+            post: [new pipelines.CodeBuildStep('BetaFunctionalTests', {
                 input: source,
-                commands: ['npm ci', 'npx tsx scripts/verify-gamma.ts'],
+                commands: ['npm ci', 'npm run test:functional'],
                 partialBuildSpec: NODE_20_BUILD_SPEC,
             })],
+        });
+
+        // Gamma: end-to-end tests against the prod-like Gamma environment, then
+        // a bake time — the last checks before production.
+        const gammaE2ETests = new pipelines.CodeBuildStep('GammaE2ETests', {
+            input: source,
+            commands: ['npm ci', 'npm run test:e2e'],
+            partialBuildSpec: NODE_20_BUILD_SPEC,
+        });
+
+        // Bake time: no tests, no load generation, no checks of its own — just
+        // a timed hold after the Gamma deploy so the stack's CloudWatch alarms
+        // have a window to fire on a bad build before the prod gate. See
+        // scripts/bake-time.ts for the checks planned as future work (Lambda
+        // memory usage, system-health alarm, error-log count).
+        const gammaBakeTime = new pipelines.CodeBuildStep('GammaBakeTime', {
+            input: source,
+            commands: ['npm ci', 'npx tsx scripts/bake-time.ts'],
+            partialBuildSpec: BAKE_BUILD_SPEC,
+        });
+        // Bake only starts once E2E has passed, cheap gate first.
+        gammaBakeTime.addStepDependency(gammaE2ETests);
+
+        pipeline.addStage(new AppStage(this, 'Gamma', { stageLabel: 'Gamma' }), {
+            post: [gammaE2ETests, gammaBakeTime],
         });
 
 
