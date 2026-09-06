@@ -8,6 +8,7 @@
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { checkSite, CheckResult } from "./canary";
 import { checkCertificate } from "./certificate";
+import { checkDns } from "./dns";
 import { MonitoredSite } from "./site-config";
 import {
   CloudWatchClient,
@@ -28,6 +29,9 @@ export interface CrawlerSiteResult extends CheckResult {
   name: string;
   certificateDaysRemaining?: number; // whole days until the TLS cert expires
   certificateError?: string; // why the cert check failed, if it did
+  dnsResolved?: boolean; // whether the hostname resolved to at least one address
+  dnsAddresses?: string[]; // the resolved IPs, when it did
+  dnsError?: string; // why the DNS lookup failed, if it did
 }
 
 /**
@@ -76,10 +80,12 @@ export async function crawl(): Promise<CrawlerSiteResult[]> {
   // kick off all checks concurrently
   const outcomes = await Promise.allSettled(
     sites.map(async (site): Promise<CrawlerSiteResult> => {
-      // the HTTP check and the TLS check are independent — run them together
-      const [result, cert] = await Promise.all([
+      // the HTTP check, the TLS check and the DNS check are independent — run
+      // them together
+      const [result, cert, dns] = await Promise.all([
         checkSite(site.url),
         checkCertificate(site.url),
+        checkDns(site.url),
       ]);
       return {
         ...result,
@@ -87,6 +93,9 @@ export async function crawl(): Promise<CrawlerSiteResult[]> {
         name: site.name,
         certificateDaysRemaining: cert.daysRemaining,
         certificateError: cert.error,
+        dnsResolved: dns.resolved,
+        dnsAddresses: dns.addresses,
+        dnsError: dns.error,
       };
     }),
   );
@@ -120,6 +129,7 @@ export async function crawl(): Promise<CrawlerSiteResult[]> {
  *   - Availability          — always
  *   - Latency               — only when the check succeeded (a down site has none)
  *   - CertificateExpiryDays  — only when the TLS handshake produced a cert
+ *   - DNSResolution          — whenever the DNS check ran (1 resolved, 0 failed)
  */
 async function publishMetrics(results: CrawlerSiteResult[]): Promise<void> {
   const timestamp = new Date();
@@ -159,6 +169,16 @@ async function publishMetrics(results: CrawlerSiteResult[]): Promise<void> {
         Timestamp: timestamp,
         Unit: StandardUnit.None, // CloudWatch has no "days" unit
         Value: result.certificateDaysRemaining,
+      });
+    }
+
+    if (result.dnsResolved !== undefined) {
+      data.push({
+        MetricName: "DNSResolution",
+        Dimensions: dimensions,
+        Timestamp: timestamp,
+        Unit: StandardUnit.Count,
+        Value: result.dnsResolved ? 1 : 0,
       });
     }
     return data;
