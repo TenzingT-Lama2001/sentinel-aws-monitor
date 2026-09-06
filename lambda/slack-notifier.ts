@@ -3,7 +3,7 @@
  *
  * A second subscriber on the same `alertTopic` the incident logger listens
  * to: every alarm state change already emails the on-call address and writes
- * a row to the incident table; this adds a third, independent destination —
+ * a row to the incident table; this adds a third, independent destination,
  * a short human-readable line in a Slack channel.
  *
  * The webhook URL is a bearer secret (anyone holding it can post to the

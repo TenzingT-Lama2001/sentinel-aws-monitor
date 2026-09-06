@@ -25,8 +25,7 @@ const SITE_CONFIG_KEY = "sites.json";
 // Base CloudWatch namespace. Per stage it becomes "WebsiteMonitoring/<stage>"
 // (see `metricNamespace` in the constructor) so Beta/Gamma/Prod, which deploy
 // to the same account+region, don't write into and read from one shared
-// series. Shared between the IAM condition, the crawler's env var, and the
-// alarm/dashboard Metric definitions.
+// series.
 const METRIC_NAMESPACE = "WebsiteMonitoring";
 
 // SSM SecureString parameter holding the Slack Incoming Webhook URL for
@@ -288,24 +287,38 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         period: cdk.Duration.minutes(5),
       });
 
+      const dnsResolution = new cloudwatch.Metric({
+        namespace: metricNamespace,
+        metricName: "DNSResolution",
+        dimensionsMap,
+        statistic: "Minimum", // any failed lookup in the period drags this to 0
+        period: cdk.Duration.minutes(5), // matches the crawler's schedule
+      });
+
       dashboard.addWidgets(
         new cloudwatch.GraphWidget({
           title: `${site.name} — Availability`,
           left: [availability],
           leftYAxis: { min: 0, max: 1 }, // Availability is always 0–1 — pin the axis so a healthy
           // site's flat line at 1 doesn't get auto-scaled into noise
-          width: 8, // a third of the dashboard's 24-column row — all 3 widgets fit on one row
+          width: 6, // a quarter of the dashboard's 24-column row — all 4 widgets fit on one row
         }),
         new cloudwatch.GraphWidget({
           title: `${site.name} — Latency (ms)`,
           left: [latency],
-          width: 8,
+          width: 6,
         }),
         new cloudwatch.GraphWidget({
           title: `${site.name} — TLS cert days remaining`,
           left: [certExpiry],
           leftYAxis: { min: 0 }, // clip the "expired" negatives — the alarm covers those
-          width: 8,
+          width: 6,
+        }),
+        new cloudwatch.GraphWidget({
+          title: `${site.name} — DNS Resolution`,
+          left: [dnsResolution],
+          leftYAxis: { min: 0, max: 1 }, // 0 = lookup failed, 1 = resolved
+          width: 6,
         }),
       );
 
@@ -362,9 +375,25 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
         },
       );
 
+      const dnsAlarm = dnsResolution.createAlarm(
+        this,
+        `DnsAlarm-${site.siteId}`,
+        {
+          alarmName: `${this.stackName}-DNSResolution-${site.siteId}`,
+          alarmDescription: `${site.name} DNS resolution has failed for 2 consecutive checks (10 min)`,
+          comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_THRESHOLD, // value below 1 = a lookup failed
+          threshold: 1,
+          evaluationPeriods: 2,
+          datapointsToAlarm: 2,
+          // Same as availability: a hostname that stops resolving and a crawler
+          // that stops reporting are equally bad, so no data → ALARM.
+          treatMissingData: cloudwatch.TreatMissingData.BREACHING,
+        },
+      );
+
       // Both ALARM and OK transitions notify,
       //  OK is what lets the incident logger record a recovery, not just an outage.
-      for (const alarm of [availabilityAlarm, latencyAlarm, certExpiryAlarm]) {
+      for (const alarm of [availabilityAlarm, latencyAlarm, certExpiryAlarm, dnsAlarm]) {
         alarm.addAlarmAction(new cwActions.SnsAction(alertTopic));
         alarm.addOkAction(new cwActions.SnsAction(alertTopic));
       }
@@ -372,8 +401,8 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       // Latency and cert use treatMissingData: MISSING, so a data gap lands
       // them in INSUFFICIENT_DATA. Notify on that too — the Slack notifier
       // turns it into a "⚠️ NO DATA" line; the incident logger ignores it.
-      // Availability is BREACHING (no data = assume down), so it never sits
-      // in INSUFFICIENT_DATA and isn't wired here.
+      // Availability and DNS are BREACHING (no data = assume down), so they
+      // never sit in INSUFFICIENT_DATA and aren't wired here.
       for (const alarm of [latencyAlarm, certExpiryAlarm]) {
         alarm.addInsufficientDataAction(new cwActions.SnsAction(alertTopic));
       }
@@ -383,12 +412,12 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
       cdk.Tags.of(availabilityAlarm).add("MetricType", "Availability");
       cdk.Tags.of(latencyAlarm).add("MetricType", "Latency");
       cdk.Tags.of(certExpiryAlarm).add("MetricType", "CertificateExpiry");
+      cdk.Tags.of(dnsAlarm).add("MetricType", "DNSResolution");
     }
 
     const dashboardUrl = `https://${this.region}.console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${dashboard.dashboardName}`;
 
-    // The Slack notifier links to this from every message. Set here (not in
-    // the function's `environment` block above) because the dashboard is
+    // The Slack notifier links to this from every message. Set here  because the dashboard is
     // defined further down the file than the Lambda.
     slackNotifierFunction.addEnvironment("DASHBOARD_URL", dashboardUrl);
 

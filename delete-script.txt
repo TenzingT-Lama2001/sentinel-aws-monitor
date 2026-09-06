@@ -38,6 +38,11 @@ STEP 1: Delete app stacks in both regions (Beta / Gamma / Prod)
 ------------------------------------------------------------
 
 REM --- Singapore (ap-southeast-1) ---
+
+aws cloudformation delete-stack --stack-name SentinelAwsMonitorStack-Singapore-Alpha --region ap-southeast-1
+aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorStack-Singapore-Alpha --region ap-southeast-1
+aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Singapore-Alpha --region ap-southeast-1
+
 aws cloudformation delete-stack --stack-name SentinelAwsMonitorStack-Singapore-Beta --region ap-southeast-1
 aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorStack-Singapore-Beta --region ap-southeast-1
 aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Singapore-Beta --region ap-southeast-1
@@ -51,6 +56,10 @@ aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorSta
 aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Singapore-Prod --region ap-southeast-1
 
 REM --- Sydney (ap-southeast-2) ---
+aws cloudformation delete-stack --stack-name SentinelAwsMonitorStack-Sydney-Alpha --region ap-southeast-2
+aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorStack-Sydney-Alpha --region ap-southeast-2
+aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Sydney-Alpha --region ap-southeast-2
+
 aws cloudformation delete-stack --stack-name SentinelAwsMonitorStack-Sydney-Beta --region ap-southeast-2
 aws cloudformation wait stack-delete-complete --stack-name SentinelAwsMonitorStack-Sydney-Beta --region ap-southeast-2
 aws cloudformation describe-stacks --stack-name SentinelAwsMonitorStack-Sydney-Beta --region ap-southeast-2
@@ -77,10 +86,10 @@ REM Find the bucket
 aws cloudformation describe-stack-resources --stack-name PipelineStack-support-ap-southeast-2 --region ap-southeast-2 --query "StackResources[?ResourceType=='AWS::S3::Bucket'].PhysicalResourceId"
 
 REM Check what's in it
-aws s3 ls s3://<bucket-name-from-above> --
+aws s3 ls s3://pipelinestack-support-ap-eplicationbucket7296483591855cb8a9cd
 
 REM Empty it (only if it has objects)
-aws s3 rm s3://<bucket-name-from-above> --recursive
+aws s3 rm s3://pipelinestack-support-ap-eplicationbucket7296483591855cb8a9cd --recursive
 
 REM Now delete the stack itself
 aws cloudformation delete-stack --stack-name PipelineStack-support-ap-southeast-2 --region ap-southeast-2
@@ -91,6 +100,7 @@ REM Confirm the bucket itself — it may still exist (RETAIN by default), that's
 REM If it does and it's confirmed empty, it's safe to remove directly:
 aws s3 ls | findstr pipelinestack-support
 aws s3 rb s3://<bucket-name-from-above>
+aws s3 rb s3://pipelinestack-support-ap-eplicationbucket7296483591855cb8a9cd
 
 
 ------------------------------------------------------------
@@ -123,3 +133,5 @@ pipelinestack-pipelineartifactsbucket... (Singapore) — this is a different buc
 
 
 cdk destroy PipelineStack --all --app "npx tsx bin/sentinel-aws-monitor.ts"
+
+cdk destroy PipelineStack --app "npx tsx bin/sentinel-aws-monitor.ts" --force
