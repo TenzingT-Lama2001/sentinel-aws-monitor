@@ -176,8 +176,7 @@ export class PipelineStack extends cdk.Stack {
         // Bake time: no tests, no load generation, no checks of its own — just
         // a timed hold after the Gamma deploy so the stack's CloudWatch alarms
         // have a window to fire on a bad build before the prod gate. See
-        // scripts/bake-time.ts for the checks planned as future work (Lambda
-            memory usage, system-health alarm, error-log count).
+//            memory usage, system-health alarm, error-log count).
         const gammaBakeTime = new pipelines.CodeBuildStep('GammaBakeTime', {
             input: source,
             commands: ['npm ci', 'npx tsx scripts/bake-time.ts'],
