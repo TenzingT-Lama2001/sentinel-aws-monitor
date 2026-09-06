@@ -39,7 +39,7 @@ describe("Sentinel AWS Monitor Infrastructure", () => {
   });
 
   test("creates the monitoring Lambda functions", () => {
-    template.resourceCountIs("AWS::Lambda::Function", 3);
+    template.resourceCountIs("AWS::Lambda::Function", 4);
 
     template.hasResourceProperties("AWS::Lambda::Function", {
       Runtime: "nodejs24.x",
