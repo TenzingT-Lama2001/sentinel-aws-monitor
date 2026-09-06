@@ -61,6 +61,7 @@ The same CDK stack definition is deployed to each region independently — regio
 | CloudWatch Alarms | ✅ Implemented |
 | SNS notifications | ✅ Implemented |
 | DynamoDB incident logging | ✅ Implemented |
+| Slack integration| ✅ Implemented |
 
 
 ## Features
