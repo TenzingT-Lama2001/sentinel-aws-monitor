@@ -68,6 +68,20 @@ export class PipelineStack extends cdk.Stack {
 
         const pipeline = new pipelines.CodePipeline(this, 'Pipeline', {
             pipelineName: 'SentinelAwsMonitorCI',
+
+            selfMutationCodeBuildDefaults: {
+                partialBuildSpec: codebuild.BuildSpec.fromObject({
+                    env: {
+                        'parameter-store': {
+                            ALERT_EMAIL: `${SSM_PREFIX}/alert-email`,
+                            AWS_ACCOUNT_ID: `${SSM_PREFIX}/aws-account-id`,
+                            REGION_SINGAPORE: `${SSM_PREFIX}/region-singapore`,
+                            REGION_SYDNEY: `${SSM_PREFIX}/region-sydney`,
+                        },
+                    },
+                }),
+            },
+
             synth: new pipelines.CodeBuildStep('Synth', {
                 // Equivalent of actions/checkout.
                 input: source,
