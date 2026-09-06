@@ -45,7 +45,7 @@ describe("SentinelAwsMonitorStack - Unit Tests", () => {
 
     const template = Template.fromStack(stack);
 
-    template.resourceCountIs("AWS::Lambda::Function", 3);
+    template.resourceCountIs("AWS::Lambda::Function", 4);
   });
 
   test("creates the incident DynamoDB table with on-demand billing", () => {
