@@ -69,6 +69,33 @@ export class PipelineStack extends cdk.Stack {
         const pipeline = new pipelines.CodePipeline(this, 'Pipeline', {
             pipelineName: 'SentinelAwsMonitorCI',
 
+            selfMutationCodeBuildDefaults: {
+                partialBuildSpec: codebuild.BuildSpec.fromObject({
+                    phases: {
+                        install: {
+                            'runtime-versions': { nodejs: 20 },
+                        },
+                    },
+                    env: {
+                        'parameter-store': {
+                            ALERT_EMAIL: `${SSM_PREFIX}/alert-email`,
+                            AWS_ACCOUNT_ID: `${SSM_PREFIX}/aws-account-id`,
+                            REGION_SINGAPORE: `${SSM_PREFIX}/region-singapore`,
+                            REGION_SYDNEY: `${SSM_PREFIX}/region-sydney`,
+                        },
+                    },
+                }),
+
+                rolePolicy: [
+                    new iam.PolicyStatement({
+                        actions: ['ssm:GetParameters'],
+                        resources: [
+                            `arn:aws:ssm:${this.region}:${this.account}:parameter${SSM_PREFIX}/*`,
+                        ],
+                    }),
+                ],
+            },
+
             synth: new pipelines.CodeBuildStep('Synth', {
                 // Equivalent of actions/checkout.
                 input: source,
@@ -150,7 +177,7 @@ export class PipelineStack extends cdk.Stack {
         // a timed hold after the Gamma deploy so the stack's CloudWatch alarms
         // have a window to fire on a bad build before the prod gate. See
         // scripts/bake-time.ts for the checks planned as future work (Lambda
-        // memory usage, system-health alarm, error-log count).
+            memory usage, system-health alarm, error-log count).
         const gammaBakeTime = new pipelines.CodeBuildStep('GammaBakeTime', {
             input: source,
             commands: ['npm ci', 'npx tsx scripts/bake-time.ts'],
