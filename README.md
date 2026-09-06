@@ -308,7 +308,7 @@ cdk deploy
 ```
 
 ## Sprints
-### Tenzing
+# Tenzing
 ## Sprint 1 
 
 Created the AWS account and set up IAM roles, installed the AWS CDK, and initialized the TypeScript application. Committed all progress to GitHub, updated the README file, and finalized the project proposal.
@@ -354,7 +354,14 @@ ALARM, and surfaced the error on the Beta/Gamma dashboards, despite no change in
 ## Sprint 6 (Planned)
 prepare the final presentation and finalize the report
 
-### Samrat
+# Samrat
+
+## Sprint 1
+## Sprint 2
+## Sprint 3
+## Sprint 4
+## Sprint 5
+## Sprint 6
 ## License
 
 This project is submitted as coursework for NIT6150 Advanced Project, Victoria University.
