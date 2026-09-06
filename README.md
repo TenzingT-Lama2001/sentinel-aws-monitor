@@ -21,11 +21,24 @@ Sentinel is deployed as a single CDK stack, instantiated independently per AWS R
 ![Architecture of the Project](architecture.png)
 
 ```
-S3 (site list) → Lambda (canary/crawler) → CloudWatch (metrics)
-                                                  ├── CloudWatch Dashboard
-                                                  └── CloudWatch Alarms → SNS (notify)
-                                                                       └── DynamoDB (log)
+EventBridge (rate: every 5 min) ──┐
+                                  ▼
+S3 (sites.json) ──▶ Crawler Lambda ──▶ CloudWatch metrics (per SiteId)
+                   availability · latency      │
+                   TLS cert · DNS              ├──▶ CloudWatch Dashboard
+                   (all sites concurrently)    │
+                                               └──▶ CloudWatch Alarms ──▶ SNS topic
+                                                                             │
+                                          fan-out to 3 independent subscribers
+                                          (each notified on ALARM and OK):
+                                                     │
+                                                     ├──▶ Email (on-call)
+                                                     ├──▶ Slack Notifier λ  ──▶ Slack channel
+                                                     └──▶ Incident Logger λ ──▶ DynamoDB (incident history)
 ```
+
+The Slack path is a Lambda subscription independent of the email subscription and the incident
+logger, so a Slack outage cannot affect email delivery or incident logging, and vice versa.
 
 Each regional stack contains:
 
