@@ -308,6 +308,7 @@ cdk deploy
 ```
 
 ## Sprints
+### Tenzing
 ## Sprint 1 
 
 Created the AWS account and set up IAM roles, installed the AWS CDK, and initialized the TypeScript application. Committed all progress to GitHub, updated the README file, and finalized the project proposal.
@@ -339,6 +340,21 @@ Blockers resolved: attached required node version in the buildspec, .env variabl
 ## Blockers (Sprint 4)
 Node.js version mismatch in CodeBuild's default image that crashed linting, naming mismatch in the `.env` file that caused the Singapore deployment to silently land in the wrong region and create a duplicate pipeline, pipeline not auto-triggering on push.
 
+## Sprint 5
+Merged dynamodb, secondary metrics and ci-cd  pipeline to the main branch.Worked on webhook to integrate slack messages. 
+
+Blockers resolved: metric namespace is now stage-scoped:
+WebsiteMonitoring/Beta, WebsiteMonitoring/Gamma, WebsiteMonitoring/Prod 
+
+## Blockers (Sprint 5)
+Uploading a sites.json to the Prod config bucket made the Prod crawler emit failing datapoints under
+WebsiteMonitoring, and the Beta and Gamma alarms (watching the same namespace + metricname + SiteId) picked them up, went into    
+ALARM, and surfaced the error on the Beta/Gamma dashboards, despite no change in those stages.
+
+## Sprint 6 (Planned)
+prepare the final presentation and finalize the report
+
+### Samrat
 ## License
 
 This project is submitted as coursework for NIT6150 Advanced Project, Victoria University.
