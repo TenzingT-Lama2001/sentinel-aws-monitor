@@ -80,6 +80,18 @@ export class PipelineStack extends cdk.Stack {
                         },
                     },
                 }),
+                rolePolicyStatements: [
+                    new iam.PolicyStatement({
+                        actions: ['ssm:GetParameters'],
+                        resources: [
+                            `arn:aws:ssm:${this.region}:${this.account}:parameter${SSM_PREFIX}/*`,
+                        ],
+                    }),
+                    new iam.PolicyStatement({
+                        actions: ['kms:Decrypt'],
+                        resources: ['*'],
+                    }),
+                ],
             },
 
             synth: new pipelines.CodeBuildStep('Synth', {
