@@ -29,25 +29,25 @@ S3 (site list) → Lambda (canary/crawler) → CloudWatch (metrics)
 
 Each regional stack contains:
 
-- **AWS Lambda** — website availability and latency checks
+- **AWS Lambda** — website availability, latency, TLS certificate, incident logging, and Slack notification functions
 - **Amazon S3** — monitored-site configuration (`sites.json`)
-- **Amazon EventBridge** — scheduled monitoring trigger _(planned — Phase 2)_
-- **Amazon CloudWatch** — metrics, dashboards, and alarms _(metrics: Phase 2; alarms/dashboard: Phase 2–3)_
-- **Amazon SNS** — alert notifications _(planned — Phase 3)_
-- **Amazon DynamoDB** — incident records _(planned — Phase 3)_
+- **Amazon EventBridge** — scheduled monitoring trigger (every 5 minutes)
+- **Amazon CloudWatch** — metrics, dashboards, and alarms
+- **Amazon SNS** — alert notifications (email, incident logger, Slack)
+- **Amazon DynamoDB** — incident records
 
 ## AWS Regions
 
 | Region           | Location                                       | Status                                                                  |
 | ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------- |
-| `ap-southeast-2` | Sydney                                         | Primary deployment region                                               |
-| _TBD_            | _TBD (candidate: Singapore, `ap-southeast-1`)_ | Second region, to be finalised during multi-region deployment (Phase 2) |
+| `ap-southeast-2` | Sydney                                         | Primary deployment region — live                                        |
+| `ap-southeast-1` | Singapore                                      | Second region — live, deployed independently of Sydney                 |
 
 The same CDK stack definition is deployed to each region independently — regional resources are intentionally isolated so monitoring can continue from one region if another becomes unavailable.
 
 ## Project Status
 
-🚧 **In progress** — currently in Phase 2 (crawler and S3 site configuration). See the project proposal and System Analysis and Design Report in `docs/` for the full phased plan.
+🚧 **In progress** — Phase 4 (CI/CD pipeline and hardening). Core monitoring, alerting, and incident logging are complete; see the project proposal and System Analysis and Design Report in `docs/` for the full phased plan.
 
 
 | Feature | Status |
@@ -74,33 +74,36 @@ The crawler Lambda reads the monitored-site list from S3 (`config/sites.json`). 
 - Response latency (milliseconds)
 - Error information when a request fails or times out
 
-### CloudWatch metrics _(planned)_
+### CloudWatch metrics
 
-Custom metrics will be published under the namespace `Sentinel/Monitoring`:
+Custom metrics are published under the namespace `WebsiteMonitoring` (stage-scoped to
+`WebsiteMonitoring/<Stage>` for the Beta/Gamma/Prod pipeline deployments, so the stages
+don't read/write one shared series):
 
 - Availability
 - Latency
+- CertificateExpiryDays
 
-Metrics will use the website name as a dimension (e.g. `Site = example-site-01`).
+Metrics use each site's `SiteId` as a dimension.
 
-### CloudWatch dashboards _(planned)_
+### CloudWatch dashboards
 
-Each regional stack will create a regional CloudWatch Dashboard including:
+Each regional stack creates a CloudWatch Dashboard with, per monitored site:
 
-- Website availability
-- Website latency
-- Lambda invocations, errors, and duration
+- Availability
+- Latency
+- TLS certificate days remaining
 
-Dashboard names will follow the pattern `Sentinel-<region>`, e.g. `Sentinel-ap-southeast-2`.
+Dashboard names follow the pattern `WebsiteMonitoring-<stack name>`.
 
-### CloudWatch alarms _(planned)_
+### CloudWatch alarms
 
-Two alarms are planned for Phase 3:
+Three alarms per monitored site, all connected to the shared SNS alert topic and
+notifying on both entering `ALARM` and returning to `OK`:
 
-- **Availability alarm** — enters the alarm state when a site's availability falls below the expected value
-- **Latency alarm** — triggers when response latency exceeds the configured threshold
-
-Alarm notifications will be connected to an SNS topic.
+- **Availability alarm** — triggers when a site has been down for 2 consecutive checks (15-minute window)
+- **Latency alarm** — triggers when average response latency exceeds 3000ms for 2 consecutive checks
+- **Certificate expiry alarm** — triggers when a site's TLS certificate has fewer than 14 days remaining
 
 ### DynamoDB incident records
 
@@ -124,6 +127,20 @@ The DynamoDB table uses the website's `siteId` as the partition key and the even
 DynamoDB uses **PAY_PER_REQUEST** billing because the monitoring workload has relatively low and unpredictable write volume.
 
 The incident logging pipeline is designed to be independent of the email notification path. A single SNS alarm event can therefore be delivered to both the human notification channel and the incident logger.
+
+### Slack notifications
+
+In addition to the existing email subscription, every alarm/OK transition is posted to
+Slack in real time.
+
+- `slackNotifierFunction` subscribes to the same SNS alert topic as the email
+  subscription and the incident logger — independent of both, so a Slack outage can't
+  affect email delivery or incident logging, and vice versa.
+- Formats a short, human-readable message per alarm (site name, alarm description,
+  metric, timestamp) with a deep link to the CloudWatch dashboard.
+- The Slack Incoming Webhook URL is stored in SSM Parameter Store as a SecureString,
+  created once manually per region — CDK only references it, never creates or destroys
+  it, so the secret survives every `cdk destroy`/redeploy cycle.
 
 ---
 
@@ -216,12 +233,15 @@ Both the DNS and SSL alarms are connected to the same SNS topic used by the exis
 ## Tech Stack
 
 - **AWS CDK** (TypeScript) — Infrastructure as Code
-- **AWS Lambda** — serverless compute for the canary/crawler
+- **AWS Lambda** — serverless compute for the canary/crawler and notification functions
 - **Amazon S3** — monitored-site configuration storage
 - **Amazon CloudWatch** — metrics, dashboards, alarms
 - **Amazon EventBridge** — scheduled execution
 - **Amazon SNS** — alarm notifications
 - **Amazon DynamoDB** — incident logging
+- **Amazon SSM Parameter Store** — Slack webhook secret storage
+- **Slack Incoming Webhooks** — real-time alarm notifications
+- **AWS CDK Pipelines** (CodePipeline, CodeBuild, CodeStar Connections) — CI/CD
 
 ## Repository Structure
 
@@ -232,12 +252,21 @@ sentinel-aws-monitor/
 ├── config/
 │   └── sites.json                    # Monitored-site configuration
 ├── docs/
-│   └── NIT6150_Project_Proposal_Final.docx
-├── infra/                            # CDK stack definitions
+│   ├── NIT6150_Project_Proposal_Final.docx
+│   └── notifications-design.md       # Design doc for Slack/weekly-report notifications
+├── infra/
+│   ├── sentinel-aws-monitor-stack.ts # Main regional stack (Lambdas, CloudWatch, SNS, DynamoDB)
+│   ├── pipeline-stack.ts             # CDK Pipelines CI/CD stack (CodePipeline/CodeBuild/CodeStar Connections)
+│   └── app-stage.ts                  # Pipeline stage wrapper (Beta/Gamma/Prod)
 ├── lambda/
 │   ├── canary.ts                     # Phase 1: single-site health check
 │   ├── crawler.ts                    # Phase 2: multi-site crawler (reads config/sites.json)
+│   ├── certificate.ts                # TLS certificate expiry check
+│   ├── incident-logger.ts            # SNS -> DynamoDB incident logging
+│   ├── slack-notifier.ts             # SNS -> Slack alarm notifications
+│   ├── alarm-message.ts              # Shared alarm message parsing/formatting
 │   └── site-config.ts                # Shared types for site configuration
+├── validation/                       # Runtime validation for sites.json
 ├── node_modules/                     # Installed dependencies (git-ignored)
 ├── test/                             # Unit tests
 ├── .gitignore
@@ -290,24 +319,25 @@ Created the Lambda function to check a single website's availability, then built
 
 Hit a design decision that hasn't been fully resolved yet: how the dashboard should update when websites are added or removed from the monitoring list. Right now, it only updates on manual redeploy, which works but isn't ideal long term. Looked at more automatic options, but they come with their own downsides, such as leftover resources that don't clean up properly, or the dashboard still showing data for sites already removed. This needs a decision before the dashboard can be considered fully finished.
 
-## Sprint 3 (upcoming)
+## Sprint 3 (planned)
 
 Starting Phase 3: setting up alarms that trigger automatically when a website's speed or uptime crosses a certain limit, connecting those alarms to a notification system so the team gets an email when something goes wrong, and building a permanent incident log to record what happened, when, and why. Once that's working, testing the whole flow end-to-end by deliberately breaking a site to confirm alerts and logging work as expected. Alongside this, continuing to update the System Analysis and Design Report and other documentation to match what's actually been built, and preparing for the final demonstration and submission.
 
-## Sprint 3
+## Sprint 3 (completed)
 Completed multi-region deployment (Sydney + Singapore, both running independently). Set up the CI pipeline (lint, type-check, test, cdk synth on every pull request), CD is still pending, deployment remains manual for now. Added ESLint and Prettier for consistent code style and formatting. Reviewed Samrat's SNS implementation and adjusted the alarm thresholds to match what's documented in the SAD report. Added runtime validation for sites.json so a malformed config fails clearly at synth time instead of causing confusing downstream errors.
 
 Manually tested the full alert pipeline end-to-end, simulated outage, and recovery, and confirmed email notifications fired correctly in every case, including that we only get notified on genuine state changes rather than repeatedly while an issue persists.
 
-## Sprint 4 (Upcoming)
-For the next sprint, the plan is to test the incident logging pipeline end-to-end with DynamoDB ,triggering real alarms and confirming incidents get correctly written. I'll also write unit tests for the key Lambda functions to lock in current behavior and catch errors early. Finally, I'll set up the CD pipeline — automated deployment to both regions on merge to main, including the AWS authentication setup (OIDC) needed to let GitHub Actions deploy securely.
+## Sprint 4 (planned)
+For the next sprint, the plan is to test the incident logging pipeline end-to-end with DynamoDB, triggering real alarms and confirming incidents get correctly written. I'll also write unit tests for the key Lambda functions to lock in current behavior and catch errors early. Finally, I'll set up the CD pipeline — automated deployment to both regions on merge to main, including the AWS authentication setup (OIDC) needed to let GitHub Actions deploy securely.
 
+## Sprint 4 (completed)
 Built the project's CI/CD pipeline using CDK Pipelines (CodePipeline, CodeBuild, CodeConnections) instead of GitHub Actions, per the requirement to keep everything as code. It pulls from GitHub, runs lint/build/test/synth in CodeBuild, and deploys both regions behind a manual approval gate, with sensitive config stored in SSM Parameter Store rather than hardcoded in the template.
 
-Blockers resolved: attached required node version in the buildspec, .env variable names were aligned with the code, the auto trigger issue turned out to be becuase of the actual GitHub app enabling push notifications had never been installed on the repo, spearate from the AWS-side authorization; installing it resolved the issue and the pipeline now triggers on push to the branch"
+Blockers resolved: attached required node version in the buildspec, .env variable names were aligned with the code, the auto trigger issue turned out to be because of the actual GitHub app enabling push notifications had never been installed on the repo, separate from the AWS-side authorization; installing it resolved the issue and the pipeline now triggers on push to the branch.
 
-## Sprint 4 (Blockers)
-nodejs version mismatch in CodeBuild's default image that crashed linting, naming mismatch in my .env file that caused the singapore deployment to silently land in the wrong region and create a duplicate pipeline, Pipeline nto auto triggering on push 
+## Blockers (Sprint 4)
+Node.js version mismatch in CodeBuild's default image that crashed linting, naming mismatch in the `.env` file that caused the Singapore deployment to silently land in the wrong region and create a duplicate pipeline, pipeline not auto-triggering on push.
 
 ## License
 
