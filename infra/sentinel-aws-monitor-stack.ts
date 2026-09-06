@@ -25,8 +25,7 @@ const SITE_CONFIG_KEY = "sites.json";
 // Base CloudWatch namespace. Per stage it becomes "WebsiteMonitoring/<stage>"
 // (see `metricNamespace` in the constructor) so Beta/Gamma/Prod, which deploy
 // to the same account+region, don't write into and read from one shared
-// series. Shared between the IAM condition, the crawler's env var, and the
-// alarm/dashboard Metric definitions.
+// series.
 const METRIC_NAMESPACE = "WebsiteMonitoring";
 
 // SSM SecureString parameter holding the Slack Incoming Webhook URL for
@@ -418,8 +417,7 @@ export class SentinelAwsMonitorStack extends cdk.Stack {
 
     const dashboardUrl = `https://${this.region}.console.aws.amazon.com/cloudwatch/home?region=${this.region}#dashboards:name=${dashboard.dashboardName}`;
 
-    // The Slack notifier links to this from every message. Set here (not in
-    // the function's `environment` block above) because the dashboard is
+    // The Slack notifier links to this from every message. Set here  because the dashboard is
     // defined further down the file than the Lambda.
     slackNotifierFunction.addEnvironment("DASHBOARD_URL", dashboardUrl);
 

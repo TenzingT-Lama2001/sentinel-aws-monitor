@@ -7,9 +7,7 @@
  * place means the two consumers can't drift apart on what a field means.
  */
 
-// The dimension the crawler tags every metric with, and therefore the one
-// the alarm carries into its notification. Must match `dimensionsMap` in
-// the stack (`{ SiteId: site.siteId }`).
+
 export const SITE_DIMENSION = 'SiteId';
 
 export type AlarmState = 'ALARM' | 'OK' | 'INSUFFICIENT_DATA';

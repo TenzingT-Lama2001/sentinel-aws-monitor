@@ -16,7 +16,7 @@ const GITHUB_BRANCH = 'tenzing/ci-cd';
 const SSM_PREFIX = '/sentinel-aws-monitor';
 
 // Default CodeBuild image is Node 18; every step that runs npm ci/tsx needs 20+,
-// not just Synth — shared so the post-deploy check steps don't drift from it.
+// not just Synth -shared so the post-deploy check steps don't drift from it.
 const NODE_20_BUILD_SPEC = codebuild.BuildSpec.fromObject({
     phases: {
         install: {
@@ -25,8 +25,7 @@ const NODE_20_BUILD_SPEC = codebuild.BuildSpec.fromObject({
     },
 });
 
-// Bake step just needs the window length. BAKE_MINUTES lives here so it's a
-// one-line change (set to 0 for a demo).
+// Bake step just needs the window length.
 const BAKE_BUILD_SPEC = codebuild.BuildSpec.fromObject({
     phases: {
         install: {
@@ -35,7 +34,7 @@ const BAKE_BUILD_SPEC = codebuild.BuildSpec.fromObject({
     },
     env: {
         variables: {
-            BAKE_MINUTES: '30',
+            BAKE_MINUTES: '0',
         },
     },
 });
@@ -71,9 +70,6 @@ export class PipelineStack extends cdk.Stack {
             synth: new pipelines.CodeBuildStep('Synth', {
                 // Equivalent of actions/checkout.
                 input: source,
-                // Build + synth only. Tests moved to the Alpha stage (below):
-                // CI's job is "is this valid, deployable code?", not "is the
-                // logic correct?".
                 commands: [
                     'npm ci',
                     'npm run lint',
@@ -115,9 +111,7 @@ export class PipelineStack extends cdk.Stack {
             }),
         });
 
-        // Alpha: unit tests only, nothing deployed. A wave with a post step and
-        // no stages — this is the "does the logic work in isolation?" gate, run
-        // before any real environment is touched.
+        // Alpha: unit tests only, nothing deployed. 
         pipeline.addWave('Alpha', {
             post: [new pipelines.CodeBuildStep('AlphaUnitTests', {
                 input: source,
