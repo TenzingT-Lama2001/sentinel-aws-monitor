@@ -9,7 +9,7 @@ import { AppStage } from './app-stage'
 
 // Repo the pipeline pulls from, via CodeStar Connections.
 const GITHUB_OWNER_REPO = 'TenzingT-Lama2001/sentinel-aws-monitor';
-const GITHUB_BRANCH = 'tenzing/main';
+const GITHUB_BRANCH = 'main';
 
 
 // SSM paths the synth step reads at build time. CodeBuild resolves them at container start.
